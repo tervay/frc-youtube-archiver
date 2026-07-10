@@ -6,7 +6,7 @@
 # --- Stage 1: build the React SPA -------------------------------------------
 FROM debian:bookworm-slim AS frontend
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && apt-get install -y --no-install-recommends ca-certificates curl libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 # mise installs node (npm ships with it); shims put node/npm on PATH so npm's
 # `env node` child processes (tsc, vite) resolve too.
