@@ -52,9 +52,12 @@ YouTube downloads fail without every piece; these are the correct settings defau
 2. **EJS solver** — `ytdlp_remote_components = "ejs:github"` fetches the signature/n-challenge
    solver. **Needs the Deno runtime** (bundled via `COPY --from=denoland/deno:bin`). Without it,
    only storyboards / "requested format not available".
-3. **Player client** — `youtube_player_client = "tv,web_safari,mweb"`. The default/web clients now
-   need a po_token and return **HTTP 403** on media. `default`/`tv_embedded`/`android_vr` → 403;
-   `ios` → no formats. Only tv/web_safari/mweb work.
+3. **Player client** — `youtube_player_client = "mweb,tv,web_safari"` (mweb **first**). The
+   default/web clients need a po_token and return **HTTP 403** on media
+   (`default`/`tv_embedded`/`android_vr` → 403; `ios` → no formats). The `tv` client's DASH URLs
+   now also get a **mid-download 403 (~20MB in)** on was_live/post-live videos (SABR throttling),
+   so it must not be first — yt-dlp resolves a shared format id (e.g. 303) to the first-listed
+   client. `mweb` + a GVS PO token (piece 4) downloads cleanly; tv/web_safari stay as fallbacks.
 4. **GVS PO token** — YouTube now also requires a *GVS PO token* for `web_safari`/`mweb` DASH
    formats (and post-live/`was_live` streams); without it the media URLs 403 even after format
    selection succeeds. Provided by the bundled **bgutil-ytdlp-pot-provider** (`==1.3.1`): the

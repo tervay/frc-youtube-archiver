@@ -73,11 +73,13 @@ SETTINGS: list[SettingSpec] = [
                 "Required for YouTube: lets yt-dlp fetch its EJS signature/n "
                 "challenge solver (needs the Deno runtime, bundled). Comma-"
                 "separated; blank to disable. e.g. ejs:github", group="Downloads"),
-    SettingSpec("youtube_player_client", "tv,web_safari,mweb", "str",
+    SettingSpec("youtube_player_client", "mweb,tv,web_safari", "str",
                 "YouTube player client",
-                "Comma-separated yt-dlp player clients. These avoid the HTTP 403 "
-                "you get from the 'default'/web clients (which now need a po_token). "
-                "Blank/'default' lets yt-dlp choose.", group="Downloads"),
+                "Comma-separated yt-dlp player clients, highest priority first. "
+                "mweb (with the bundled PO-token provider) is preferred because the "
+                "tv client's DASH URLs now get a mid-download HTTP 403 (SABR "
+                "throttling) on was_live/post-live videos; tv/web_safari are kept "
+                "as fallbacks. Blank/'default' lets yt-dlp choose.", group="Downloads"),
     SettingSpec("extra_ytdlp_args", "", "str", "Extra yt-dlp args",
                 "Advanced: --flag=value style extra options passed to yt-dlp.",
                 group="Downloads"),
