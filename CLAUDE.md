@@ -100,9 +100,17 @@ against a freshly-signed URL (which kept the 403 permanent across all attempts).
   `Video.status == failed`.
 - On startup `recover_interrupted_jobs()` resets running→pending (mid-download at restart).
 - Tests: `backend/tests/` — run with pytest. Scanner client is injectable for fixture tests.
-  Locally use `uv` for the Python runtime/deps (Python **3.12** — 3.14 has no prebuilt wheels for
-  the pinned `pydantic-core`):
-  `mise exec uv -- uv run --python 3.12 --with-requirements requirements.txt --with-requirements requirements-dev.txt python -m pytest`.
+  Deps live in `backend/pyproject.toml` (a **uv** project: runtime deps + a `dev` group; no
+  `uv.lock` is committed so rebuilds re-resolve and keep `yt-dlp` current). Run tests from
+  `backend/` — `uv run` auto-syncs the deps incl. the `dev` group (Python **3.12** — 3.14 has no
+  prebuilt wheels for the pinned `pydantic-core`):
+  `mise exec -- uv run --python 3.12 python -m pytest`.
+- **Runtimes are mise-managed.** Root `mise.toml` pins `python`/`node`/`uv` (npm ships with node)
+  for both local dev and the **Docker image** — the Dockerfile installs those same versions via
+  mise instead of `FROM python:/node:` base tags, so there's one source of truth and no image tags
+  to bump. Deno is the exception (copied from `denoland/deno:bin`). mise tools land under
+  `/opt/mise` (world-readable so the dropped PUID/PGID user can exec the interpreter the venv
+  points at).
 - **Test isolation gotcha:** `app/paths.py` reads `ARCHIVER_CONFIG_DIR` into a module-level
   `CONFIG_DIR` **at import time** (default `/config`). The `temp_env` fixture sets the env var, but
   if `app.paths` was already imported by an earlier non-`temp_env` test, `CONFIG_DIR` stays frozen

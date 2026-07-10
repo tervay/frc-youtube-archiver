@@ -3,6 +3,7 @@ dist/
 __pycache__/
 *.pyc
 .venv/
+uv.lock
 config/
 *.db
 .env

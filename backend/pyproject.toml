@@ -1,0 +1,40 @@
+[project]
+name = "frc-archiver"
+version = "1.0.0"
+description = "Self-hosted archiver for FRC YouTube videos (TBA-driven, yt-dlp)."
+# 3.14 has no prebuilt wheels for the pinned pydantic-core; stay on 3.12/3.13.
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "sqlmodel==0.0.22",
+    "httpx==0.28.1",
+    "apscheduler==3.11.0",
+    # Unpinned on purpose: YouTube regularly breaks older yt-dlp, so builds
+    # should pull a current release. Bump the floor when you rebuild.
+    "yt-dlp>=2025.6.30",
+    "pydantic==2.10.4",
+    "pydantic-settings==2.7.1",
+    "python-multipart==0.0.20",
+    # YouTube GVS PO-token client plugin (auto-discovered by yt-dlp). Keep this
+    # pinned to the bundled provider server version in the Dockerfile.
+    "bgutil-ytdlp-pot-provider==1.3.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.4",
+    "pytest-asyncio==0.25.0",
+    "respx==0.22.0",
+]
+
+[tool.uv]
+# This is an application, not a library — don't try to build/install `app` as a
+# package, only its dependencies. No uv.lock is committed on purpose (see the
+# yt-dlp note above): each `uv sync` re-resolves so rebuilds get current yt-dlp.
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = "."
+testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -1,0 +1,8 @@
+# Runtimes for both local dev and the Docker image (the Dockerfile installs
+# these same versions via mise, so there's one source of truth — no base-image
+# tags to keep in sync). npm is not listed separately: it ships with node, and
+# mise exposes it (npm/npx) alongside node.
+[tools]
+python = "3.12" # 3.14 has no prebuilt wheels for the pinned pydantic-core
+node = "26"
+uv = "latest"
