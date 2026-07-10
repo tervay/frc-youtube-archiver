@@ -1,0 +1,17 @@
+services:
+  frc-archiver:
+    build: .
+    image: frc-archiver:latest
+    container_name: frc-archiver
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    environment:
+      # Optional: seed the TBA key on first boot (also editable in the UI).
+      - TBA_API_KEY=${TBA_API_KEY:-}
+      # Match your Unraid share owner so tdarr and this app agree on perms.
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+    volumes:
+      - ./config:/config          # SQLite DB + optional cookies.txt
+      - /mnt/user/frc:/library    # download target, shared with tdarr

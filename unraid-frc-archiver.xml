@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>frc-archiver</Name>
+  <Repository>tervay/frc-archiver:latest</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Archives FRC YouTube videos from TheBlueAlliance with yt-dlp and a web dashboard. Downloads event livestream VODs and team match videos, tracks state in SQLite (keyed on the YouTube ID so tdarr transcodes never trigger re-downloads), and skips in-progress livestreams. Bundles Deno + ffmpeg.</Overview>
+  <Category>MediaApp:Video Downloaders:Video</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL/>
+  <Icon>https://www.thebluealliance.com/images/tba_lamp.svg</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Description>Self-hosted FRC YouTube archiver. Set the Media path to the same share tdarr watches. Add teams/seasons/districts and your TheBlueAlliance key in the web UI. No authentication - keep it on your LAN.</Description>
+
+  <Config Name="WebUI Port" Target="8000" Default="8080" Mode="tcp"
+    Description="Host port for the dashboard." Type="Port" Display="always"
+    Required="true" Mask="false">8080</Config>
+
+  <Config Name="Config (DB)" Target="/config" Default="/mnt/user/appdata/frc-archiver"
+    Mode="rw" Description="Holds the SQLite database and an optional cookies.txt."
+    Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/frc-archiver</Config>
+
+  <Config Name="Library (tdarr share)" Target="/library" Default="/mnt/user/frc"
+    Mode="rw" Description="Where videos are downloaded. Point this at the SAME share tdarr transcodes."
+    Type="Path" Display="always" Required="true" Mask="false">/mnt/user/frc</Config>
+
+  <Config Name="TBA API Key" Target="TBA_API_KEY" Default="" Mode=""
+    Description="TheBlueAlliance read key (thebluealliance.com/account). Optional - can also be set in the web UI."
+    Type="Variable" Display="always" Required="false" Mask="true"></Config>
+
+  <Config Name="PUID" Target="PUID" Default="99" Mode=""
+    Description="User ID that owns downloaded files (99 = nobody, so tdarr can replace them)."
+    Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
+
+  <Config Name="PGID" Target="PGID" Default="100" Mode=""
+    Description="Group ID that owns downloaded files (100 = users)."
+    Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
+</Container>
