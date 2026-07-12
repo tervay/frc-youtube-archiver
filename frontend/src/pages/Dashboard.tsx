@@ -62,6 +62,10 @@ export default function Dashboard() {
             onClick={() => run("rec", api.reconcileNow, "Reconcile done")}>
             {busy === "rec" ? "Reconciling…" : "Reconcile now"}
           </button>
+          <button disabled={busy !== null}
+            onClick={() => run("gany", api.ganymedeSync, "Ganymede sync done")}>
+            {busy === "gany" ? "Syncing Ganymede…" : "Sync Ganymede"}
+          </button>
         </div>
       </div>
 

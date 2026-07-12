@@ -5,6 +5,7 @@ YouTube video, keyed on the stable ``youtube_id``. Nothing about a file's name
 or codec is ever used to decide whether to re-download — that all lives on the
 row and is refreshed by the reconciler.
 """
+
 from __future__ import annotations
 
 import enum

@@ -1,4 +1,5 @@
 """SQLite engine, schema creation, and the typed settings accessor."""
+
 from __future__ import annotations
 
 import json
@@ -47,11 +48,9 @@ def _migrate() -> None:
     engine = get_engine()
     with engine.begin() as conn:
         for table, column, coltype in _ADD_COLUMNS:
-            cols = {row[1] for row in
-                    conn.execute(text(f"PRAGMA table_info({table})"))}
+            cols = {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))}
             if column not in cols:
-                conn.execute(
-                    text(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
 
 
 @contextmanager

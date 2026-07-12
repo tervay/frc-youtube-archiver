@@ -1,4 +1,5 @@
 """Entry points for the scan and reconcile jobs, safe to run in a thread."""
+
 from __future__ import annotations
 
 import logging
@@ -9,19 +10,28 @@ from .. import events
 from ..db import get_all_settings, get_engine
 from ..models import ScanRun, Video, VideoStatus, utcnow
 from . import ytdlp_runner
+from .ganymede_sync import GanymedeSync
 from .queue import enqueue_video
 from .reconciler import reconcile
 from .scanner import Scanner
 
 log = logging.getLogger("archiver.audit")
+gany_log = logging.getLogger("archiver.ganymede")
 
 
 def run_scan() -> ScanRun:
     with Session(get_engine()) as session:
         run = Scanner(session).run()
-    events.publish("scan_done", {"kind": "scan", "discovered": run.discovered,
-                                 "enqueued": run.enqueued, "ok": run.ok,
-                                 "message": run.message})
+    events.publish(
+        "scan_done",
+        {
+            "kind": "scan",
+            "discovered": run.discovered,
+            "enqueued": run.enqueued,
+            "ok": run.ok,
+            "message": run.message,
+        },
+    )
     return run
 
 
@@ -29,6 +39,82 @@ def run_reconcile() -> ScanRun:
     with Session(get_engine()) as session:
         run = reconcile(session)
     events.publish("scan_done", {"kind": "reconcile", "message": run.message})
+    return run
+
+
+def run_ganymede_sync() -> ScanRun:
+    """Reconcile TBA Twitch webcasts against Ganymede's watched channels.
+
+    Add-only: tracks any Twitch channel discovered on an in-scope event that
+    Ganymede doesn't already watch. Never removes or disables anything in
+    Ganymede. See ``services/ganymede_sync.py`` for the reconcile logic and
+    ``services/ganymede_client.py`` for the no-delete HTTP constraint.
+    """
+    gany_log.info("ganymede sync: starting")
+    with Session(get_engine()) as session:
+        run = ScanRun(kind="ganymede_sync")
+        session.add(run)
+        session.commit()
+        session.refresh(run)
+
+        settings = get_all_settings(session)
+        if not settings["ganymede_enabled"]:
+            gany_log.info("ganymede sync: disabled in settings, skipping")
+            run.ok = True
+            run.message = "Ganymede sync is disabled; skipped."
+            run.finished_at = utcnow()
+            session.add(run)
+            session.commit()
+            session.refresh(run)
+            return run
+
+        gany_log.info(
+            "ganymede sync: base_url=%s resolution=%s vod_resolution=%s "
+            "watch_vod=%s archive_chat=%s",
+            settings.get("ganymede_base_url"),
+            settings.get("ganymede_resolution"),
+            settings.get("ganymede_vod_resolution"),
+            settings.get("ganymede_watch_vod"),
+            settings.get("ganymede_archive_chat"),
+        )
+
+        try:
+            result = GanymedeSync(session, settings).run()
+            run.ok = result.errors == 0
+            run.discovered = result.desired
+            run.enqueued = result.added
+            run.errors = result.errors
+            run.message = (
+                f"Tracked {result.added} new channel(s) of "
+                f"{result.desired} desired"
+                + (
+                    f"; {result.errors} error(s): " + "; ".join(result.messages)
+                    if result.errors
+                    else ""
+                )
+            )
+            gany_log.info("ganymede sync: finished — %s", run.message)
+        except Exception as exc:  # noqa: BLE001 - report, don't crash the job
+            run.ok = False
+            run.errors = 1
+            run.message = f"Ganymede sync failed: {exc}"
+            gany_log.exception("ganymede sync failed")
+
+        run.finished_at = utcnow()
+        session.add(run)
+        session.commit()
+        session.refresh(run)
+
+    events.publish(
+        "scan_done",
+        {
+            "kind": "ganymede_sync",
+            "discovered": run.discovered,
+            "enqueued": run.enqueued,
+            "ok": run.ok,
+            "message": run.message,
+        },
+    )
     return run
 
 
@@ -62,35 +148,44 @@ def run_resolution_audit() -> ScanRun:
         for video in videos:
             try:
                 res = ytdlp_runner.probe(video.webpage_url, settings)
-            except Exception as exc:  # noqa: BLE001 - one bad video mustn't halt the audit
+            except (
+                Exception
+            ) as exc:  # noqa: BLE001 - one bad video mustn't halt the audit
                 errors += 1
-                log.warning("audit probe failed for %s: %s",
-                            video.youtube_id, exc)
+                log.warning("audit probe failed for %s: %s", video.youtube_id, exc)
                 continue
             probed += 1
-            if (res.available_height
-                    and res.available_height > video.current_height):
+            if res.available_height and res.available_height > video.current_height:
                 video.error = None
                 session.add(video)
                 session.commit()
                 if enqueue_video(session, video):
                     requeued += 1
-                    log.info("audit requeued %s: on-disk %sp < available %sp",
-                             video.youtube_id, video.current_height,
-                             res.available_height)
+                    log.info(
+                        "audit requeued %s: on-disk %sp < available %sp",
+                        video.youtube_id,
+                        video.current_height,
+                        res.available_height,
+                    )
 
         run.discovered = probed
         run.enqueued = requeued
         run.errors = errors
         run.finished_at = utcnow()
-        run.message = (f"Requeued {requeued} of {probed} probed"
-                       + (f"; {errors} probe errors" if errors else ""))
+        run.message = f"Requeued {requeued} of {probed} probed" + (
+            f"; {errors} probe errors" if errors else ""
+        )
         session.add(run)
         session.commit()
         session.refresh(run)
 
-    events.publish("scan_done", {"kind": "resolution_audit",
-                                 "discovered": run.discovered,
-                                 "enqueued": run.enqueued,
-                                 "message": run.message})
+    events.publish(
+        "scan_done",
+        {
+            "kind": "resolution_audit",
+            "discovered": run.discovered,
+            "enqueued": run.enqueued,
+            "message": run.message,
+        },
+    )
     return run

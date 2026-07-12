@@ -1,4 +1,5 @@
 """Helpers for moving a Video into the download queue."""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -31,6 +32,13 @@ def enqueue_video(session: Session, video: Video) -> Optional[DownloadJob]:
     session.add(job)
     session.commit()
     session.refresh(job)
-    events.publish("job_queued", {"video_id": video.id, "job_id": job.id,
-                                  "title": video.title, "youtube_id": video.youtube_id})
+    events.publish(
+        "job_queued",
+        {
+            "video_id": video.id,
+            "job_id": job.id,
+            "title": video.title,
+            "youtube_id": video.youtube_id,
+        },
+    )
     return job

@@ -88,6 +88,9 @@ against a freshly-signed URL (which kept the 403 permanent across all attempts).
 
 ## Conventions / gotchas
 
+- **Always run `black backend/` before building/committing backend changes** (e.g.
+  `mise exec -- uv run --python 3.12 python -m black backend/`, or `mise exec -- uvx black backend/`
+  if black isn't installed). Python code must stay black-formatted.
 - **Timestamps are UTC.** Backend stores naive-UTC; frontend `parseDate` appends "Z" before
   parsing or everything shows "just now" / wrong local time.
 - Active queue orders by `DownloadJob.id` ascending = download order (downloading first, then

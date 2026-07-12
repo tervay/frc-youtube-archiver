@@ -1,4 +1,5 @@
 """CRUD for tracked discovery sources (seasons, districts, teams)."""
+
 from __future__ import annotations
 
 import re
@@ -57,8 +58,9 @@ def create_source(payload: SourceIn, session: Session = Depends(get_session)):
 
 
 @router.patch("/sources/{source_id}")
-def toggle_source(source_id: int, enabled: bool,
-                  session: Session = Depends(get_session)):
+def toggle_source(
+    source_id: int, enabled: bool, session: Session = Depends(get_session)
+):
     source = session.get(Source, source_id)
     if source is None:
         raise HTTPException(404, "Source not found")

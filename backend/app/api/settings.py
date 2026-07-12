@@ -1,4 +1,5 @@
 """Settings endpoints: expose the schema + current values, and save edits."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -24,19 +25,23 @@ class SettingsUpdate(BaseModel):
 def read_settings(session: Session = Depends(get_session)):
     values = get_all_settings(session)
     schema = [
-        {"key": s.key, "label": s.label, "help": s.help, "type": s.type,
-         "group": s.group,
-         # never echo the API key back to the browser in cleartext
-         "value": ("" if s.type == "password" and values[s.key] else values[s.key]),
-         "is_set": bool(values[s.key]) if s.type == "password" else None}
+        {
+            "key": s.key,
+            "label": s.label,
+            "help": s.help,
+            "type": s.type,
+            "group": s.group,
+            # never echo the API key back to the browser in cleartext
+            "value": ("" if s.type == "password" and values[s.key] else values[s.key]),
+            "is_set": bool(values[s.key]) if s.type == "password" else None,
+        }
         for s in SETTINGS
     ]
     return {"schema": schema}
 
 
 @router.put("/settings")
-def update_settings(payload: SettingsUpdate,
-                    session: Session = Depends(get_session)):
+def update_settings(payload: SettingsUpdate, session: Session = Depends(get_session)):
     for key, value in payload.values.items():
         # Ignore blank password fields so we don't wipe a stored secret.
         spec = next((s for s in SETTINGS if s.key == key), None)

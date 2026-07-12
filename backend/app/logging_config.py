@@ -5,6 +5,7 @@ via the ``log_level`` setting (UI) or the ``ARCHIVER_LOG_LEVEL`` env var to get
 verbose download diagnostics, including yt-dlp's own extractor/downloader output
 (see ``YtdlpLogger`` and ``ytdlp_runner``).
 """
+
 from __future__ import annotations
 
 import logging
@@ -47,8 +48,8 @@ def setup_logging(level: str | None = None) -> None:
         try:
             _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
             fileh = RotatingFileHandler(
-                _LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5,
-                encoding="utf-8")
+                _LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+            )
             fileh.setFormatter(fmt)
             root.addHandler(fileh)
         except OSError as e:  # pragma: no cover - depends on volume perms

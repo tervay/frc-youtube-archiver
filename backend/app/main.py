@@ -1,4 +1,5 @@
 """FastAPI application: API + SSE + the built React SPA, one process/port."""
+
 from __future__ import annotations
 
 import asyncio
@@ -30,7 +31,9 @@ async def lifespan(app: FastAPI):
     with Session(get_engine()) as session:
         setup_logging(get_all_settings(session).get("log_level"))  # honor saved level
     log = logging.getLogger("archiver.startup")
-    recovered = recover_interrupted_jobs()  # requeue jobs left mid-download by a restart
+    recovered = (
+        recover_interrupted_jobs()
+    )  # requeue jobs left mid-download by a restart
     if recovered:
         log.info("Recovered %d interrupted download job(s) -> pending", recovered)
     events.set_loop(asyncio.get_running_loop())
@@ -58,8 +61,7 @@ def health():
 
 # --- Static SPA (mounted last so /api wins) -----------------------------------
 if (STATIC_DIR / "assets").exists():
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"),
-              name="assets")
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
 
 @app.get("/{full_path:path}")

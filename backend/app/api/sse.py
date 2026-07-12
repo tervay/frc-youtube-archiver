@@ -1,4 +1,5 @@
 """Server-Sent Events stream of live download progress + status changes."""
+
 from __future__ import annotations
 
 import asyncio
@@ -30,6 +31,8 @@ async def event_stream(request: Request):
         finally:
             events.unsubscribe(queue)
 
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache",
-                                      "X-Accel-Buffering": "no"})
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
