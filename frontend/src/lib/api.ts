@@ -17,9 +17,11 @@ export interface Video {
   status: VideoStatus;
   file_path: string | null;
   orig_vcodec: string | null;
+  orig_height: number | null;
   current_ext: string | null;
   current_vcodec: string | null;
   current_size: number | null;
+  current_height: number | null;
   transcoded: boolean;
   present: boolean;
   duration: number | null;
@@ -32,6 +34,7 @@ export interface Job {
   id: number;
   video_id: number;
   state: "pending" | "running" | "done" | "error" | "canceled";
+  phase?: string | null;
   progress_pct: number;
   speed: string | null;
   eta: string | null;
@@ -83,5 +86,6 @@ export const api = {
     req(`/settings`, { method: "PUT", body: JSON.stringify({ values }) }),
   scanNow: () => req(`/actions/scan`, { method: "POST" }),
   reconcileNow: () => req(`/actions/reconcile`, { method: "POST" }),
+  resolutionAudit: () => req<{ started: boolean }>(`/actions/resolution-audit`, { method: "POST" }),
   runs: () => req<any[]>("/runs"),
 };

@@ -10,19 +10,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from .. import events
 from ..db import get_all_settings, get_engine
 from ..models import (DownloadJob, JobState, SourceType, Video, VideoStatus, utcnow)
 from . import ytdlp_runner
 from .media_probe import ffprobe
+from .reconciler import VIDEO_EXTS, extract_youtube_id
 
 log = logging.getLogger("archiver.worker")
 
@@ -46,6 +48,7 @@ def recover_interrupted_jobs() -> int:
             job.state = JobState.pending
             job.started_at = None
             job.progress_pct = 0.0
+            job.phase = "downloading"
             video = session.get(Video, job.video_id)
             if video and video.status == VideoStatus.downloading:
                 video.status = VideoStatus.queued
@@ -91,7 +94,11 @@ def _dest_dir(media_root: str, video: Video) -> Path:
 
 class DownloadManager:
     def __init__(self) -> None:
-        self._executor = ThreadPoolExecutor(max_workers=8,
+        # Sized well above any sane ``concurrent_downloads`` so post-processing
+        # (merge/mux) jobs — which no longer count against the download limit —
+        # have headroom to run alongside fresh downloads. ``_dispatch_loop``
+        # still caps total in-flight at this ceiling.
+        self._executor = ThreadPoolExecutor(max_workers=16,
                                             thread_name_prefix="dl")
         self._futures: dict[int, asyncio.Future] = {}
         self._task: Optional[asyncio.Task] = None
@@ -117,13 +124,20 @@ class DownloadManager:
                 self._reap()
                 with Session(get_engine()) as session:
                     concurrency = int(get_all_settings(session)["concurrent_downloads"])
-                    free = max(0, concurrency - len(self._futures))
-                    if free:
+                    # A job in the post-processing (merge/mux) phase no longer
+                    # occupies a download slot — only actively-downloading jobs
+                    # count against ``concurrency``. Cap total in-flight at the
+                    # pool size so piled-up merges can't exhaust the executor.
+                    active_downloads = self._count_active_downloads(session)
+                    free = max(0, concurrency - active_downloads)
+                    free = min(free,
+                               self._executor._max_workers - len(self._futures))
+                    if free > 0:
                         for job in self._claim(session, free):
+                            active_downloads += 1
                             log.info("Dispatching job %d (video_id=%s) to worker "
-                                     "thread [%d/%d slots in use]", job.id,
-                                     job.video_id, len(self._futures) + 1,
-                                     concurrency)
+                                     "thread [%d/%d download slots in use]", job.id,
+                                     job.video_id, active_downloads, concurrency)
                             fut = loop.run_in_executor(self._executor,
                                                        run_job, job.id)
                             self._futures[job.id] = fut
@@ -138,6 +152,20 @@ class DownloadManager:
         for job_id, fut in list(self._futures.items()):
             if fut.done():
                 self._futures.pop(job_id, None)
+
+    def _count_active_downloads(self, session: Session) -> int:
+        """In-flight jobs still pulling bytes (phase != postprocessing).
+
+        Merging jobs are excluded so they don't hold a ``concurrent_downloads``
+        slot. NULL phase (pre-migration rows) is treated as downloading.
+        """
+        if not self._futures:
+            return 0
+        rows = session.exec(
+            select(DownloadJob.phase)
+            .where(col(DownloadJob.id).in_(list(self._futures)))
+        ).all()
+        return sum(1 for phase in rows if phase != "postprocessing")
 
     def _claim(self, session: Session, limit: int) -> list[DownloadJob]:
         jobs = session.exec(
@@ -172,6 +200,7 @@ def run_job(job_id: int) -> None:
 
         settings = get_all_settings(session)
         job.attempts += 1
+        job.phase = "downloading"
         video.status = VideoStatus.downloading
         session.add_all([job, video])
         session.commit()
@@ -197,13 +226,33 @@ def run_job(job_id: int) -> None:
                 video.title = probe.title
 
             dest = _dest_dir(settings["media_root"], video)
+            # A re-download (force_redownload / skipped_live re-run) must replace
+            # any file already on disk for this id: yt-dlp skips when the final
+            # file exists, and the new file may land at a different extension
+            # (tdarr AV1 .mkv vs a fresh .mp4), which would otherwise orphan the
+            # old one. youtube_id dedup means run_job only reaches here for a new
+            # or intentionally-requeued id, so removing an existing file is safe.
+            _remove_existing_output(settings["media_root"], video)
             log.info("job=%d downloading to %s (format=%r client=%r)", job.id,
                      dest, settings.get("format_selector"),
                      settings.get("youtube_player_client"))
-            hook = _make_hook(job_id, video.id)
-            pp_hook = _make_pp_hook(job_id, video.id)
-            result = ytdlp_runner.download(video.webpage_url, dest, settings,
-                                           hook, pp_hook)
+            # Shared between the download hook (which learns the combined size
+            # and final path), the pp hook (which starts the merge monitor), and
+            # the monitor thread itself.
+            ctx: dict = {"combined_total": 0, "final_path": None,
+                         "dest_dir": dest,
+                         "stop": threading.Event(), "thread": None}
+            hook = _make_hook(job_id, video.id, ctx)
+            pp_hook = _make_pp_hook(job_id, video.id, ctx)
+            try:
+                result = ytdlp_runner.download(video.webpage_url, dest, settings,
+                                               hook, pp_hook)
+            finally:
+                # Authoritative merge-monitor cleanup: pp "finished" may never
+                # fire if ffmpeg raises, so always stop and join here.
+                ctx["stop"].set()
+                if ctx["thread"] is not None:
+                    ctx["thread"].join(timeout=3)
             elapsed = time.monotonic() - t0
             log.info("job=%d download OK in %.1fs -> %s (ext=%s vcodec=%s)",
                      job.id, elapsed, result.get("filepath"), result.get("ext"),
@@ -229,7 +278,7 @@ def _combined_total(info: dict) -> int:
     return total
 
 
-def _make_hook(job_id: int, video_id: int):
+def _make_hook(job_id: int, video_id: int, ctx: Optional[dict] = None):
     # (monotonic_time, cumulative_bytes) samples for a rolling-average speed.
     samples: deque[tuple[float, int]] = deque()
     last_pub = {"t": 0.0}
@@ -258,6 +307,19 @@ def _make_hook(job_id: int, video_id: int):
             combined = _combined_total(info) or stream_total
             cum_done = st["base"] + done
             pct = (cum_done / combined * 100.0) if combined else 0.0
+
+            # Hand the merge monitor the true combined size and the final merged
+            # path (info["_filename"] is the post-merge target, e.g. .mkv).
+            if ctx is not None:
+                if combined:
+                    ctx["combined_total"] = combined
+                # Declared filesize/filesize_approx is frequently missing or a
+                # low estimate for was_live/post-live streams, which otherwise
+                # makes the merge progress bar peg near 100% almost instantly.
+                # Track the actual peak downloaded bytes as a more reliable
+                # stand-in for the remuxed output's final size.
+                ctx["merge_total"] = max(ctx.get("merge_total", 0), cum_done)
+                ctx["final_path"] = info.get("_filename") or filename
 
             # Rolling average over the last few seconds smooths out yt-dlp's
             # very noisy per-chunk speed/ETA readings.
@@ -311,18 +373,100 @@ _PP_LABELS = {
 }
 
 
-def _make_pp_hook(job_id: int, video_id: int):
-    """Surface the merge/mux phase, which emits no download progress at all."""
+# Post-processors that merge the separate video+audio streams into one growing
+# output file — the ones whose progress we can estimate from that file's size.
+_MERGE_PPS = {"Merger", "FFmpegMerger"}
+
+
+def _merge_temp_path(ctx: dict, youtube_id: str) -> Optional[Path]:
+    """Locate yt-dlp's growing merge temp file (``<name>.temp.<ext>``).
+
+    Prefers deriving it exactly from the final merged path; falls back to a
+    directory scan keyed on the video id when that path isn't known yet.
+    """
+    final = ctx.get("final_path")
+    if final:
+        p = Path(final)
+        return p.with_name(p.stem + ".temp" + p.suffix)
+    # Fallback: scan the destination dir for the growing merge temp file.
+    dest = ctx.get("dest_dir")
+    if dest and youtube_id:
+        try:
+            for path in Path(dest).iterdir():
+                name = path.name
+                if (youtube_id in name and ".temp." in name
+                        and path.suffix.lower() in VIDEO_EXTS):
+                    return path
+        except OSError:
+            pass
+    return None
+
+
+def _monitor_merge(job_id: int, video_id: int, label: str, youtube_id: str,
+                   ctx: dict) -> None:
+    """Poll the merge temp file's size and publish an approximate percentage.
+
+    Runs in its own daemon thread (yt-dlp blocks the worker thread in ffmpeg
+    during the merge). Exits when ``ctx['stop']`` is set by the pp "finished"
+    event or run_job's finally block.
+    """
+    stop: threading.Event = ctx["stop"]
+    while not stop.wait(2.0):
+        total = ctx.get("merge_total") or ctx.get("combined_total") or 0
+        temp = _merge_temp_path(ctx, youtube_id)
+        pct: Optional[float] = None
+        if temp is not None and total > 0:
+            try:
+                size = temp.stat().st_size
+            except OSError:
+                size = 0
+            if size > 0:
+                pct = min(size / total * 100.0, 99.0)
+        payload = {
+            "job_id": job_id, "video_id": video_id,
+            "progress_pct": round(pct, 1) if pct is not None else 100.0,
+            "speed": label, "eta": None, "phase": "postprocessing",
+        }
+        events.publish("progress", payload)
+        _persist_progress(job_id, payload)
+
+
+def _make_pp_hook(job_id: int, video_id: int, ctx: Optional[dict] = None):
+    """Surface the merge/mux phase, which emits no download progress at all.
+
+    For a real stream merge we also spawn a monitor thread that turns the
+    growing output file into a moving progress bar; other post-processors keep
+    the static badge.
+    """
     last = {"t": 0.0}
 
     def hook(d: dict) -> None:
-        if d.get("status") not in ("started", "processing"):
+        status = d.get("status")
+        pp = d.get("postprocessor", "")
+        if status == "finished":
+            if ctx is not None and pp in _MERGE_PPS:
+                ctx["stop"].set()
             return
-        label = _PP_LABELS.get(d.get("postprocessor", ""), "processing…")
+        if status not in ("started", "processing"):
+            return
+        label = _PP_LABELS.get(pp, "processing…")
+        # Merging no longer holds a download slot — flip phase promptly (an
+        # unthrottled write) so the dispatcher frees the slot within one tick.
+        if pp in _MERGE_PPS:
+            _persist_phase(job_id, "postprocessing")
+            if ctx is not None and status == "started" and ctx.get("thread") is None:
+                video = d.get("info_dict") or {}
+                youtube_id = video.get("id") or ""
+                t = threading.Thread(
+                    target=_monitor_merge,
+                    args=(job_id, video_id, label, youtube_id, ctx),
+                    name=f"merge-{job_id}", daemon=True)
+                ctx["thread"] = t
+                t.start()
         payload = {
             "job_id": job_id, "video_id": video_id,
             "progress_pct": 100.0,  # streams are downloaded; now post-processing
-            "speed": label, "eta": None, "phase": "processing",
+            "speed": label, "eta": None, "phase": "postprocessing",
         }
         events.publish("progress", payload)
         now = time.monotonic()
@@ -331,6 +475,17 @@ def _make_pp_hook(job_id: int, video_id: int):
             _persist_progress(job_id, payload)
 
     return hook
+
+
+def _persist_phase(job_id: int, phase: str) -> None:
+    """Immediately record a job's phase (unthrottled, small write)."""
+    with Session(get_engine()) as session:
+        job = session.get(DownloadJob, job_id)
+        if job is None or job.state != JobState.running or job.phase == phase:
+            return
+        job.phase = phase
+        session.add(job)
+        session.commit()
 
 
 def _persist_progress(job_id: int, p: dict) -> None:
@@ -343,6 +498,8 @@ def _persist_progress(job_id: int, p: dict) -> None:
         job.eta = str(p.get("eta") or "")
         job.downloaded_bytes = p.get("downloaded_bytes", job.downloaded_bytes)
         job.total_bytes = p.get("total_bytes", job.total_bytes)
+        if p.get("phase"):
+            job.phase = p["phase"]
         session.add(job)
         session.commit()
 
@@ -363,12 +520,14 @@ def _record_success(session: Session, job: DownloadJob, video: Video,
     video.orig_container = media.container if media else None
     video.orig_vcodec = (media.vcodec if media else None) or result.get("vcodec")
     video.orig_size = media.size if media else None
+    video.orig_height = media.height if media else None
     video.duration = (media.duration if media else None) or result.get("duration")
     video.downloaded_at = utcnow()
     video.present = True
     video.current_ext = video.orig_ext
     video.current_vcodec = video.orig_vcodec
     video.current_size = video.orig_size
+    video.current_height = video.orig_height
     video.transcoded = False
     video.last_seen_at = utcnow()
     video.error = None
@@ -396,6 +555,32 @@ def _mark_skipped_live(session: Session, job: DownloadJob, video: Video,
     session.commit()
     events.publish("job_skipped", {"job_id": job.id, "video_id": video.id,
                                    "reason": "live", "live_status": live_status})
+
+
+def _remove_existing_output(media_root: str, video: Video) -> None:
+    """Delete any completed on-disk file for this video before a re-download.
+
+    Walks the media root recursively (layout-agnostic, like the reconciler) and
+    removes files whose embedded ``[VIDEOID]`` matches — regardless of extension
+    or directory — so the fresh download replaces the old one instead of being
+    skipped or orphaned. Only final media files are matched (the ``[id]`` token
+    sits right before the extension), so ``.part``/``.ytdl`` artifacts are left
+    to ``_cleanup_partials``.
+    """
+    root = Path(media_root)
+    if not root.exists():
+        return
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in VIDEO_EXTS:
+            continue
+        if extract_youtube_id(path.name) != video.youtube_id:
+            continue
+        try:
+            path.unlink()
+            log.info("removed existing file %s before re-download of %s",
+                     path, video.youtube_id)
+        except OSError as exc:
+            log.warning("could not remove existing file %s: %s", path, exc)
 
 
 def _cleanup_partials(media_root: str, video: Video) -> None:
@@ -437,6 +622,7 @@ def _handle_failure(session: Session, job: DownloadJob, video: Video,
                     job.id, job.attempts, max_retries, video.id, error)
         job.state = JobState.pending
         job.started_at = None
+        job.phase = "downloading"
         video.status = VideoStatus.queued
     else:
         log.error("job=%d GAVE UP after %d attempts (max=%d) video_id=%d: %s",

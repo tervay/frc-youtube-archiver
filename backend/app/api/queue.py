@@ -77,6 +77,7 @@ def retry(job_id: int, session: Session = Depends(get_session)):
     job.started_at = None
     job.finished_at = None
     job.progress_pct = 0.0
+    job.phase = "downloading"
     video = session.get(Video, job.video_id)
     if video:
         video.status = VideoStatus.queued
