@@ -6,6 +6,9 @@ import { humanBytes } from "../lib/format";
 
 interface Row { job: Job; video: Video; }
 
+// A post-processing phase label (e.g. "merging…") rather than a transfer speed.
+const isPhase = (s: string | null | undefined) => !!s && s.endsWith("…");
+
 export default function Queue() {
   const toast = useToast();
   const [rows, setRows] = useState<Row[]>([]);
@@ -20,7 +23,8 @@ export default function Queue() {
   useEventStream((e) => {
     if (e.type === "progress") {
       setRows((rs) => rs.map((r) => r.job.id === e.data.job_id
-        ? { ...r, job: { ...r.job, progress_pct: e.data.progress_pct } } : r));
+        ? { ...r, job: { ...r.job, progress_pct: e.data.progress_pct,
+                         speed: e.data.speed } } : r));
     } else { load(); }
   });
 
@@ -45,11 +49,23 @@ export default function Queue() {
     } catch (e: any) { toast(e.message, true); }
   };
 
+  const redownloadUpgradable = async () => {
+    if (!confirm("Probe every video and re-download any below its best available resolution? This can be a lot of data.")) return;
+    try {
+      await api.resolutionAudit();
+      toast("Resolution audit started — upgradable videos will appear in the queue.");
+      load();
+    } catch (e: any) { toast(e.message, true); }
+  };
+
   return (
     <>
       <div className="page-head">
         <h1>Queue</h1>
-        <button onClick={retryAllFailed}>Retry all failed</button>
+        <div className="row" style={{ gap: 8 }}>
+          <button className="ghost" onClick={redownloadUpgradable}>Re-download upgradable</button>
+          <button onClick={retryAllFailed}>Retry all failed</button>
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: 20 }}>
@@ -86,7 +102,10 @@ function QueueTable({ rows, act, empty, showProgress }:
               <td className="wrap">{video.title}<div className="mono muted">{video.event_key || video.youtube_id}</div></td>
               <td><span className={`badge ${job.state}`}>{job.state}</span></td>
               {showProgress && <td>
-                <div className="progress"><div style={{ width: `${job.progress_pct}%` }} /></div>
+                <div className="row">
+                  <div className="progress"><div style={{ width: `${job.progress_pct}%` }} /></div>
+                  {isPhase(job.speed) && <span className="badge downloading">{job.speed}</span>}
+                </div>
               </td>}
               <td>{job.attempts}</td>
               <td className="wrap mono muted">{job.log_tail ? job.log_tail.split("\n").slice(-1)[0] : "—"}</td>

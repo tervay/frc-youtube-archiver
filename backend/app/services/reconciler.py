@@ -69,6 +69,12 @@ def reconcile(session: Session) -> ScanRun:
         video.current_ext = path.suffix.lstrip(".")
         video.current_vcodec = info.vcodec
         video.current_size = info.size
+        video.current_height = info.height
+        # Backfill the originally-downloaded height for pre-existing rows that
+        # predate height tracking; tdarr preserves resolution, so the on-disk
+        # height is a safe stand-in for what we first fetched.
+        if video.orig_height is None:
+            video.orig_height = info.height
         video.last_seen_at = utcnow()
 
         changed = _differs(video, info)

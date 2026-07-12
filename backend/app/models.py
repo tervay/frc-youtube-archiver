@@ -70,6 +70,7 @@ class Video(SQLModel, table=True):
     orig_container: Optional[str] = None
     orig_vcodec: Optional[str] = None
     orig_size: Optional[int] = None
+    orig_height: Optional[int] = None
     duration: Optional[int] = None
     downloaded_at: Optional[datetime] = None
 
@@ -78,6 +79,7 @@ class Video(SQLModel, table=True):
     current_ext: Optional[str] = None
     current_vcodec: Optional[str] = None
     current_size: Optional[int] = None
+    current_height: Optional[int] = None
     transcoded: bool = False
     last_seen_at: Optional[datetime] = None
 
@@ -94,6 +96,10 @@ class DownloadJob(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     video_id: int = Field(foreign_key="video.id", index=True)
     state: JobState = Field(default=JobState.pending, index=True)
+    # "downloading" while pulling bytes, "postprocessing" during the ffmpeg
+    # merge/mux. Only downloading jobs count against ``concurrent_downloads`` so
+    # a slow merge doesn't block a new download from starting.
+    phase: Optional[str] = "downloading"
 
     progress_pct: float = 0.0
     speed: Optional[str] = None

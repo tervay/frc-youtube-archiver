@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 
 from ..models import ScanRun
-from ..services.jobs import run_reconcile, run_scan
+from ..services.jobs import run_reconcile, run_resolution_audit, run_scan
 from .. import scheduler
 from .deps import get_session
 
@@ -25,6 +25,15 @@ async def scan_now():
 async def reconcile_now():
     run = await asyncio.get_event_loop().run_in_executor(None, run_reconcile)
     return {"message": run.message}
+
+
+@router.post("/actions/resolution-audit")
+async def resolution_audit():
+    # Fire-and-forget: probing every completed video via yt-dlp takes many
+    # minutes, so we don't await it. Results land in the scan-run history and a
+    # "scan_done" SSE event; requeued videos show up in the queue as they're found.
+    asyncio.get_event_loop().run_in_executor(None, run_resolution_audit)
+    return {"started": True}
 
 
 @router.get("/actions/schedule")

@@ -18,6 +18,8 @@ class MediaInfo:
     vcodec: Optional[str]
     size: Optional[int]
     duration: Optional[int]
+    width: Optional[int] = None
+    height: Optional[int] = None
 
 
 def ffprobe(path: str | Path) -> MediaInfo:
@@ -32,7 +34,7 @@ def ffprobe(path: str | Path) -> MediaInfo:
         data = json.loads(out.stdout or "{}")
     except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
         return MediaInfo(container=p.suffix.lstrip("."), vcodec=None,
-                         size=size, duration=None)
+                         size=size, duration=None, width=None, height=None)
 
     fmt = data.get("format", {})
     container = fmt.get("format_name")
@@ -44,10 +46,14 @@ def ffprobe(path: str | Path) -> MediaInfo:
             duration = None
 
     vcodec = None
+    width = None
+    height = None
     for stream in data.get("streams", []):
         if stream.get("codec_type") == "video":
             vcodec = stream.get("codec_name")
+            width = stream.get("width")
+            height = stream.get("height")
             break
 
     return MediaInfo(container=container, vcodec=vcodec, size=size,
-                     duration=duration)
+                     duration=duration, width=width, height=height)

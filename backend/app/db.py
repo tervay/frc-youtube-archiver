@@ -6,6 +6,7 @@ import os
 from contextlib import contextmanager
 from typing import Any, Iterator
 
+from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from . import models  # noqa: F401  (ensure tables are registered)
@@ -27,7 +28,30 @@ def get_engine():
 
 def init_db() -> None:
     SQLModel.metadata.create_all(get_engine())
+    _migrate()
     _seed_settings()
+
+
+# Additive columns not present in the original schema. ``create_all`` only
+# creates missing *tables*, never new columns on an existing one, so on an
+# already-populated DB we add them ourselves. Idempotent: skips columns that
+# already exist. (table, column, SQLite type)
+_ADD_COLUMNS = [
+    ("video", "orig_height", "INTEGER"),
+    ("video", "current_height", "INTEGER"),
+    ("download_job", "phase", "TEXT"),
+]
+
+
+def _migrate() -> None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        for table, column, coltype in _ADD_COLUMNS:
+            cols = {row[1] for row in
+                    conn.execute(text(f"PRAGMA table_info({table})"))}
+            if column not in cols:
+                conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
 
 
 @contextmanager

@@ -18,7 +18,7 @@ class FakeTba:
     def __init__(self):
         self.ended_event = {
             "key": "2026test", "name": "Test Event", "year": 2026,
-            "end_date": _past_date(),
+            "end_date": _past_date(), "state_prov": "New Hampshire", "event_type": 0,
             "webcasts": [
                 {"type": "youtube", "channel": "AAAAAAAAAAA"},
                 {"type": "youtube", "channel": "BBBBBBBBBBB"},
@@ -27,15 +27,32 @@ class FakeTba:
         }
         self.live_event = {
             "key": "2026live", "name": "Live Event", "year": 2026,
-            "end_date": _future_date(),
+            "end_date": _future_date(), "state_prov": "New Hampshire", "event_type": 0,
             "webcasts": [{"type": "youtube", "channel": "CCCCCCCCCCC"}],
+        }
+        # Out-of-region regional: excluded by the season scope filter.
+        self.regional_event = {
+            "key": "2026reg", "name": "Regional Event", "year": 2026,
+            "end_date": _past_date(), "state_prov": "California", "event_type": 0,
+            "webcasts": [{"type": "youtube", "channel": "EEEEEEEEEEE"}],
+        }
+        # Out-of-region championship: included despite the state via event_type.
+        self.champs_event = {
+            "key": "2026cmp", "name": "Champs Event", "year": 2026,
+            "end_date": _past_date(), "state_prov": "Texas", "event_type": 4,
+            "webcasts": [{"type": "youtube", "channel": "FFFFFFFFFFF"}],
         }
 
     def season_event_keys(self, year):
-        return ["2026test", "2026live"]
+        return ["2026test", "2026live", "2026reg", "2026cmp"]
 
     def event(self, key):
-        return {"2026test": self.ended_event, "2026live": self.live_event}.get(key)
+        return {
+            "2026test": self.ended_event,
+            "2026live": self.live_event,
+            "2026reg": self.regional_event,
+            "2026cmp": self.champs_event,
+        }.get(key)
 
     def district_events(self, district_key):
         return [self.ended_event]
@@ -67,10 +84,25 @@ def test_season_scan_extracts_ended_vods_only(temp_env):
         assert run.ok
 
         ids = {v.youtube_id for v in session.exec(select(Video)).all()}
-        # Two ended YouTube VODs; the live event and the twitch webcast excluded.
-        assert ids == {"AAAAAAAAAAA", "BBBBBBBBBBB"}
+        # Ended NE VODs (A, B) and the ended out-of-region championship (F) are
+        # included; the live NE event, its twitch webcast, and the ended
+        # out-of-region *regional* event are excluded.
+        assert ids == {"AAAAAAAAAAA", "BBBBBBBBBBB", "FFFFFFFFFFF"}
         for v in session.exec(select(Video)).all():
             assert v.status == VideoStatus.queued
+
+
+def test_season_scan_excludes_out_of_region_non_champs(temp_env):
+    from app.db import get_engine
+    from app.models import Video
+    from app.services.scanner import Scanner
+
+    with Session(get_engine()) as session:
+        _add_source(session, "season", "2026")
+        Scanner(session, client=FakeTba()).run()
+
+        ids = {v.youtube_id for v in session.exec(select(Video)).all()}
+        assert "EEEEEEEEEEE" not in ids
 
 
 def test_team_scan_extracts_match_videos(temp_env):
@@ -97,13 +129,13 @@ def test_dedup_second_scan_enqueues_nothing(temp_env):
     with Session(get_engine()) as session:
         _add_source(session, "season", "2026")
         first = Scanner(session, client=FakeTba()).run()
-        assert first.enqueued == 2
+        assert first.enqueued == 3
 
         second = Scanner(session, client=FakeTba()).run()
         assert second.enqueued == 0
         # No duplicate jobs created.
         jobs = session.exec(select(DownloadJob)).all()
-        assert len(jobs) == 2
+        assert len(jobs) == 3
 
 
 def test_force_redownload_requeues_single(temp_env):

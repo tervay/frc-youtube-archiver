@@ -57,7 +57,7 @@ export default function History() {
         <table>
           <thead>
             <tr><th className="wrap">Title</th><th>Status</th><th>Event</th><th>Year</th>
-              <th>Codec</th><th className="right">Size</th><th>File</th><th>When</th><th></th></tr>
+              <th>Res</th><th>Codec</th><th className="right">Size</th><th>File</th><th>When</th><th></th></tr>
           </thead>
           <tbody>
             {items.map((v) => (
@@ -69,6 +69,11 @@ export default function History() {
                 <td><span className={`badge ${v.status}`}>{v.status}</span></td>
                 <td className="mono">{v.event_key || "—"}</td>
                 <td>{v.year || "—"}</td>
+                <td>
+                  {v.current_height
+                    ? <span className={`badge ${v.current_height < 720 ? "missing" : ""}`}>{v.current_height}p</span>
+                    : "—"}
+                </td>
                 <td>
                   {v.current_vcodec || "—"}
                   {v.transcoded && <> <span className="badge transcoded">tdarr</span></>}
@@ -84,7 +89,7 @@ export default function History() {
                 </td>
               </tr>
             ))}
-            {items.length === 0 && <tr><td colSpan={9}><div className="empty">No videos match.</div></td></tr>}
+            {items.length === 0 && <tr><td colSpan={10}><div className="empty">No videos match.</div></td></tr>}
           </tbody>
         </table>
       </div>

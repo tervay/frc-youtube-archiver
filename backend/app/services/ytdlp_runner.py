@@ -34,6 +34,7 @@ class ProbeResult:
     live_status: Optional[str]
     title: str
     duration: Optional[int]
+    available_height: Optional[int] = None
 
 
 def _base_opts(settings: dict[str, Any]) -> dict[str, Any]:
@@ -146,11 +147,17 @@ def probe(url: str, settings: dict[str, Any]) -> ProbeResult:
         info = ydl.extract_info(url, download=False)
     live_status = info.get("live_status")
     is_live = bool(info.get("is_live")) or live_status in LIVE_STATUSES
+    # Best resolution YouTube offers, across every format (probe sets no
+    # `format`, so this is unfiltered). Codec is irrelevant — the resolution
+    # audit compares this to the on-disk height regardless of vcodec.
+    heights = [f.get("height") for f in (info.get("formats") or [])
+               if f.get("height")]
     return ProbeResult(
         is_live=is_live,
         live_status=live_status,
         title=info.get("title", ""),
         duration=info.get("duration"),
+        available_height=max(heights) if heights else None,
     )
 
 

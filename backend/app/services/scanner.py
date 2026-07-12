@@ -3,6 +3,9 @@
 Two kinds of YouTube video are discovered:
   * Event livestream VODs from ``Event.webcasts`` (type ``youtube``), scoped by
     the ``season``/``district`` sources and gated on the event having ended.
+    Season sources are further filtered to New England/New York events or
+    Championship events (see ``_event_in_scope``); district/team sources are
+    unaffected.
   * Match videos from ``Team.matches[].videos`` (type ``youtube``), for each
     ``team`` source.
 
@@ -37,6 +40,25 @@ def _event_has_ended(end_date: Optional[str], buffer_days: int,
     except ValueError:
         return False
     return (today - end).days > buffer_days
+
+
+# New England + New York.
+ALLOWED_STATES = {
+    "connecticut", "ct", "maine", "me", "massachusetts", "ma",
+    "new hampshire", "nh", "rhode island", "ri", "vermont", "vt",
+    "new york", "ny",
+}
+# TBA event_type ints: 3 = Championship Division, 4 = Championship Finals,
+# 6 = Festival of Champions.
+CHAMPIONSHIP_EVENT_TYPES = {3, 4, 6}
+
+
+def _event_in_scope(event: dict) -> bool:
+    """True if a season-scan event is a New England/New York or Championship event."""
+    state = (event.get("state_prov") or "").strip().lower()
+    if state in ALLOWED_STATES:
+        return True
+    return event.get("event_type") in CHAMPIONSHIP_EVENT_TYPES
 
 
 class Scanner:
@@ -86,7 +108,7 @@ class Scanner:
     def _scan_season(self, client: TbaClient, year: int, buffer_days: int) -> None:
         for event_key in client.season_event_keys(year):
             event = client.event(event_key)
-            if event:
+            if event and _event_in_scope(event):
                 self._ingest_event_vods(event, buffer_days)
 
     def _scan_district(self, client: TbaClient, district_key: str,
