@@ -10,6 +10,7 @@ was already AV1 (size will still change).
 Rows whose file has vanished are marked ``present=False`` but never
 auto-redownloaded; that's a manual, user-driven action.
 """
+
 from __future__ import annotations
 
 import re
@@ -88,8 +89,9 @@ def reconcile(session: Session) -> ScanRun:
     run.discovered = updated
     run.enqueued = transcoded_count
     run.errors = missing
-    run.message = (f"updated={updated} transcoded={transcoded_count} "
-                   f"missing={missing}")
+    run.message = (
+        f"updated={updated} transcoded={transcoded_count} " f"missing={missing}"
+    )
     run.finished_at = utcnow()
     session.add(run)
     session.commit()
@@ -101,8 +103,11 @@ def _differs(video: Video, info) -> bool:
     """True if the on-disk file no longer matches the originally downloaded one."""
     if video.orig_vcodec and info.vcodec and info.vcodec != video.orig_vcodec:
         return True
-    if video.orig_ext and video.current_ext and \
-            video.current_ext.lower() != video.orig_ext.lower():
+    if (
+        video.orig_ext
+        and video.current_ext
+        and video.current_ext.lower() != video.orig_ext.lower()
+    ):
         return True
     if video.orig_size and info.size and info.size != video.orig_size:
         return True

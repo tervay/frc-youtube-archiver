@@ -16,6 +16,7 @@ def temp_env(monkeypatch):
 
     # Reset the cached engine so each test gets a fresh DB.
     import app.db as db
+
     db._engine = None
     db.init_db()
     yield tmp

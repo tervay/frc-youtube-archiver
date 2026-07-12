@@ -5,6 +5,7 @@ table; on a 304 we replay the cached JSON body so a daily poll of unchanged
 endpoints costs almost nothing. The client is deliberately sync + httpx and is
 always called from a worker thread (never the event loop).
 """
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -50,12 +51,14 @@ class TbaClient:
             raise TbaError(f"TBA {resp.status_code} for {path}: {resp.text[:200]}")
 
         body_text = resp.text
-        self._store_cache(path, resp.headers.get("ETag"),
-                          resp.headers.get("Last-Modified"), body_text)
+        self._store_cache(
+            path, resp.headers.get("ETag"), resp.headers.get("Last-Modified"), body_text
+        )
         return resp.json()
 
-    def _store_cache(self, path: str, etag: Optional[str],
-                     last_modified: Optional[str], body: str) -> None:
+    def _store_cache(
+        self, path: str, etag: Optional[str], last_modified: Optional[str], body: str
+    ) -> None:
         row = self.session.get(TbaCache, path)
         if row is None:
             row = TbaCache(path=path)
@@ -67,14 +70,11 @@ class TbaClient:
         self.session.commit()
 
     # --- endpoint helpers -------------------------------------------------
-    def season_event_keys(self, year: int) -> list[str]:
-        return self._get(f"/events/{year}/keys") or []
+    def season_events(self, year: int) -> list[dict]:
+        return self._get(f"/events/{year}") or []
 
     def district_events(self, district_key: str) -> list[dict]:
         return self._get(f"/district/{district_key}/events") or []
-
-    def event(self, event_key: str) -> Optional[dict]:
-        return self._get(f"/event/{event_key}")
 
     def team_matches(self, team_key: str, year: int) -> list[dict]:
         return self._get(f"/team/{team_key}/matches/{year}") or []

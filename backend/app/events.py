@@ -4,6 +4,7 @@ Background workers run in threads, so ``publish`` is thread-safe: it hops onto
 the asyncio loop captured at startup and fans the event out to each subscriber
 queue. The API layer turns those queues into an ``text/event-stream`` response.
 """
+
 from __future__ import annotations
 
 import asyncio

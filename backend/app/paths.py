@@ -4,6 +4,7 @@ In the Docker image these default to the two mounted volumes:
   - /config  -> SQLite db + optional cookies.txt
   - /media   -> downloaded videos (shared with tdarr)
 """
+
 from __future__ import annotations
 
 import os

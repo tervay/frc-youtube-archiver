@@ -3,6 +3,7 @@
 Both take a plain options dict built from settings by the worker. The download
 call returns the final on-disk path so the worker can ffprobe and record it.
 """
+
 from __future__ import annotations
 
 import logging
@@ -93,8 +94,9 @@ def _apply_common(opts: dict[str, Any], settings: dict[str, Any]) -> None:
     components = (settings.get("ytdlp_remote_components") or "").strip()
     if components:
         # Required for YouTube: enables yt-dlp's EJS signature/n challenge solver.
-        opts["remote_components"] = [c.strip() for c in components.split(",")
-                                     if c.strip()]
+        opts["remote_components"] = [
+            c.strip() for c in components.split(",") if c.strip()
+        ]
 
 
 def _extractor_args(settings: dict[str, Any]) -> dict[str, Any]:
@@ -139,8 +141,7 @@ def _parse_rate(value: str) -> Optional[int]:
 
 
 def probe(url: str, settings: dict[str, Any]) -> ProbeResult:
-    opts: dict[str, Any] = {"quiet": True, "no_warnings": True,
-                            "skip_download": True}
+    opts: dict[str, Any] = {"quiet": True, "no_warnings": True, "skip_download": True}
     _apply_common(opts, settings)
     log.debug("probe %s opts=%s", url, _loggable_opts(opts))
     with yt_dlp.YoutubeDL(opts) as ydl:
@@ -150,8 +151,7 @@ def probe(url: str, settings: dict[str, Any]) -> ProbeResult:
     # Best resolution YouTube offers, across every format (probe sets no
     # `format`, so this is unfiltered). Codec is irrelevant — the resolution
     # audit compares this to the on-disk height regardless of vcodec.
-    heights = [f.get("height") for f in (info.get("formats") or [])
-               if f.get("height")]
+    heights = [f.get("height") for f in (info.get("formats") or []) if f.get("height")]
     return ProbeResult(
         is_live=is_live,
         live_status=live_status,
@@ -161,10 +161,13 @@ def probe(url: str, settings: dict[str, Any]) -> ProbeResult:
     )
 
 
-def download(url: str, dest_dir: Path, settings: dict[str, Any],
-             progress_hook: Callable[[dict], None],
-             postprocessor_hook: Optional[Callable[[dict], None]] = None,
-             ) -> dict[str, Any]:
+def download(
+    url: str,
+    dest_dir: Path,
+    settings: dict[str, Any],
+    progress_hook: Callable[[dict], None],
+    postprocessor_hook: Optional[Callable[[dict], None]] = None,
+) -> dict[str, Any]:
     """Download to ``dest_dir`` and return a summary dict.
 
     Keys: ``filepath``, ``title``, ``ext``, ``vcodec``, ``duration``.
@@ -192,8 +195,13 @@ def download(url: str, dest_dir: Path, settings: dict[str, Any],
 
     requested = (info.get("requested_downloads") or [{}])[0]
     filepath = requested.get("filepath") or info.get("_filename")
-    log.debug("yt-dlp finished %s: filepath=%s format_id=%s ext=%s",
-              url, filepath, info.get("format_id"), info.get("ext"))
+    log.debug(
+        "yt-dlp finished %s: filepath=%s format_id=%s ext=%s",
+        url,
+        filepath,
+        info.get("format_id"),
+        info.get("ext"),
+    )
     return {
         "filepath": filepath,
         "title": info.get("title", ""),

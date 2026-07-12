@@ -1,4 +1,5 @@
 """History / video-catalog endpoints."""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -32,9 +33,14 @@ def list_videos(
     filters = []
     if q:
         like = f"%{q}%"
-        filters.append(or_(Video.title.ilike(like), Video.event_key.ilike(like),
-                           Video.team_keys.ilike(like),
-                           Video.youtube_id.ilike(like)))
+        filters.append(
+            or_(
+                Video.title.ilike(like),
+                Video.event_key.ilike(like),
+                Video.team_keys.ilike(like),
+                Video.youtube_id.ilike(like),
+            )
+        )
     if year is not None:
         filters.append(Video.year == year)
     if status is not None:
@@ -55,7 +61,8 @@ def list_videos(
     total = session.exec(count_stmt).one()
     rows = session.exec(
         stmt.order_by(Video.updated_at.desc())
-        .offset((page - 1) * page_size).limit(page_size)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     ).all()
     return {"total": total, "page": page, "page_size": page_size, "items": rows}
 

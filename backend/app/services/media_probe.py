@@ -3,6 +3,7 @@
 Used both right after download (to record what we fetched) and by the
 reconciler (to detect tdarr's AV1/MKV re-encode).
 """
+
 from __future__ import annotations
 
 import json
@@ -27,14 +28,30 @@ def ffprobe(path: str | Path) -> MediaInfo:
     size = p.stat().st_size if p.exists() else None
     try:
         out = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json",
-             "-show_format", "-show_streams", str(p)],
-            capture_output=True, text=True, timeout=60,
+            [
+                "ffprobe",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
+                "-show_format",
+                "-show_streams",
+                str(p),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         data = json.loads(out.stdout or "{}")
     except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
-        return MediaInfo(container=p.suffix.lstrip("."), vcodec=None,
-                         size=size, duration=None, width=None, height=None)
+        return MediaInfo(
+            container=p.suffix.lstrip("."),
+            vcodec=None,
+            size=size,
+            duration=None,
+            width=None,
+            height=None,
+        )
 
     fmt = data.get("format", {})
     container = fmt.get("format_name")
@@ -55,5 +72,11 @@ def ffprobe(path: str | Path) -> MediaInfo:
             height = stream.get("height")
             break
 
-    return MediaInfo(container=container, vcodec=vcodec, size=size,
-                     duration=duration, width=width, height=height)
+    return MediaInfo(
+        container=container,
+        vcodec=vcodec,
+        size=size,
+        duration=duration,
+        width=width,
+        height=height,
+    )

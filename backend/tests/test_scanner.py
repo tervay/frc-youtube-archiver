@@ -1,4 +1,5 @@
 """Discovery-scan tests against a fake TBA client (no network)."""
+
 from datetime import date, timedelta
 
 from sqlmodel import Session, select
@@ -17,8 +18,12 @@ class FakeTba:
 
     def __init__(self):
         self.ended_event = {
-            "key": "2026test", "name": "Test Event", "year": 2026,
-            "end_date": _past_date(), "state_prov": "New Hampshire", "event_type": 0,
+            "key": "2026test",
+            "name": "Test Event",
+            "year": 2026,
+            "end_date": _past_date(),
+            "state_prov": "New Hampshire",
+            "event_type": 0,
             "webcasts": [
                 {"type": "youtube", "channel": "AAAAAAAAAAA"},
                 {"type": "youtube", "channel": "BBBBBBBBBBB"},
@@ -26,49 +31,62 @@ class FakeTba:
             ],
         }
         self.live_event = {
-            "key": "2026live", "name": "Live Event", "year": 2026,
-            "end_date": _future_date(), "state_prov": "New Hampshire", "event_type": 0,
+            "key": "2026live",
+            "name": "Live Event",
+            "year": 2026,
+            "end_date": _future_date(),
+            "state_prov": "New Hampshire",
+            "event_type": 0,
             "webcasts": [{"type": "youtube", "channel": "CCCCCCCCCCC"}],
         }
         # Out-of-region regional: excluded by the season scope filter.
         self.regional_event = {
-            "key": "2026reg", "name": "Regional Event", "year": 2026,
-            "end_date": _past_date(), "state_prov": "California", "event_type": 0,
+            "key": "2026reg",
+            "name": "Regional Event",
+            "year": 2026,
+            "end_date": _past_date(),
+            "state_prov": "California",
+            "event_type": 0,
             "webcasts": [{"type": "youtube", "channel": "EEEEEEEEEEE"}],
         }
         # Out-of-region championship: included despite the state via event_type.
         self.champs_event = {
-            "key": "2026cmp", "name": "Champs Event", "year": 2026,
-            "end_date": _past_date(), "state_prov": "Texas", "event_type": 4,
+            "key": "2026cmp",
+            "name": "Champs Event",
+            "year": 2026,
+            "end_date": _past_date(),
+            "state_prov": "Texas",
+            "event_type": 4,
             "webcasts": [{"type": "youtube", "channel": "FFFFFFFFFFF"}],
         }
 
-    def season_event_keys(self, year):
-        return ["2026test", "2026live", "2026reg", "2026cmp"]
-
-    def event(self, key):
-        return {
-            "2026test": self.ended_event,
-            "2026live": self.live_event,
-            "2026reg": self.regional_event,
-            "2026cmp": self.champs_event,
-        }.get(key)
+    def season_events(self, year):
+        return [
+            self.ended_event,
+            self.live_event,
+            self.regional_event,
+            self.champs_event,
+        ]
 
     def district_events(self, district_key):
         return [self.ended_event]
 
     def team_matches(self, team_key, year):
-        return [{
-            "key": "2026test_qm1", "event_key": "2026test",
-            "videos": [
-                {"type": "youtube", "key": "DDDDDDDDDDD"},
-                {"type": "tba", "key": "ignored"},
-            ],
-        }]
+        return [
+            {
+                "key": "2026test_qm1",
+                "event_key": "2026test",
+                "videos": [
+                    {"type": "youtube", "key": "DDDDDDDDDDD"},
+                    {"type": "tba", "key": "ignored"},
+                ],
+            }
+        ]
 
 
 def _add_source(session, kind, value):
     from app.models import Source, SourceKind
+
     session.add(Source(kind=SourceKind(kind), value=value))
     session.commit()
 
@@ -147,11 +165,10 @@ def test_force_redownload_requeues_single(temp_env):
         _add_source(session, "season", "2026")
         Scanner(session, client=FakeTba()).run()
 
-        v = session.exec(
-            select(Video).where(Video.youtube_id == "AAAAAAAAAAA")
-        ).first()
+        v = session.exec(select(Video).where(Video.youtube_id == "AAAAAAAAAAA")).first()
         # Simulate it having completed, then a manual force.
         from app.models import VideoStatus, JobState, DownloadJob
+
         v.status = VideoStatus.completed
         v.force_redownload = True
         for job in session.exec(

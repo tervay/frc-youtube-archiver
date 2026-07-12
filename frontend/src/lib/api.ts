@@ -88,4 +88,6 @@ export const api = {
   reconcileNow: () => req(`/actions/reconcile`, { method: "POST" }),
   resolutionAudit: () => req<{ started: boolean }>(`/actions/resolution-audit`, { method: "POST" }),
   runs: () => req<any[]>("/runs"),
+  ganymedeSync: () => req(`/ganymede/sync`, { method: "POST" }),
+  ganymedeStatus: () => req<{ enabled: boolean; reachable: boolean; watched: string[]; error?: string }>(`/ganymede/status`),
 };

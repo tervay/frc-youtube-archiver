@@ -1,4 +1,5 @@
 """Download queue endpoints: list jobs, retry, cancel, manual URL enqueue."""
+
 from __future__ import annotations
 
 import re
@@ -8,8 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, col, select
 
-from ..models import (DownloadJob, JobState, SourceType, Video, VideoStatus,
-                      utcnow)
+from ..models import DownloadJob, JobState, SourceType, Video, VideoStatus, utcnow
 from ..services.queue import enqueue_video
 from .deps import get_session
 
@@ -34,15 +34,14 @@ def _extract_id(url: str) -> Optional[str]:
 
 
 @router.get("/queue")
-def list_queue(session: Session = Depends(get_session),
-               active_only: bool = False):
-    stmt = select(DownloadJob, Video).join(Video,
-                                           col(DownloadJob.video_id) == col(Video.id))
+def list_queue(session: Session = Depends(get_session), active_only: bool = False):
+    stmt = select(DownloadJob, Video).join(
+        Video, col(DownloadJob.video_id) == col(Video.id)
+    )
     if active_only:
         # Ascending id puts running (claimed earliest) first, then pending in
         # the order they'll be downloaded — matches the dashboard's expectation.
-        stmt = stmt.where(DownloadJob.state.in_([JobState.pending,
-                                                 JobState.running]))
+        stmt = stmt.where(DownloadJob.state.in_([JobState.pending, JobState.running]))
         stmt = stmt.order_by(DownloadJob.id).limit(500)
     else:
         stmt = stmt.order_by(DownloadJob.created_at.desc()).limit(500)
@@ -53,9 +52,7 @@ def list_queue(session: Session = Depends(get_session),
 @router.post("/queue/retry-failed")
 def retry_failed(session: Session = Depends(get_session)):
     """Requeue every video currently in the failed state."""
-    failed = session.exec(
-        select(Video).where(Video.status == VideoStatus.failed)
-    ).all()
+    failed = session.exec(select(Video).where(Video.status == VideoStatus.failed)).all()
     requeued = 0
     for video in failed:
         video.error = None

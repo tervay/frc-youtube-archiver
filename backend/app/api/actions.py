@@ -1,4 +1,5 @@
 """Manual triggers and scan-run history."""
+
 from __future__ import annotations
 
 import asyncio
@@ -17,8 +18,12 @@ router = APIRouter(tags=["actions"])
 @router.post("/actions/scan")
 async def scan_now():
     run = await asyncio.get_event_loop().run_in_executor(None, run_scan)
-    return {"ok": run.ok, "discovered": run.discovered,
-            "enqueued": run.enqueued, "message": run.message}
+    return {
+        "ok": run.ok,
+        "discovered": run.discovered,
+        "enqueued": run.enqueued,
+        "message": run.message,
+    }
 
 
 @router.post("/actions/reconcile")
