@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import shutil
 import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from glob import escape as glob_escape
 from pathlib import Path
 from typing import Optional
 
@@ -86,11 +89,96 @@ def _dest_dir(media_root: str, video: Video) -> Path:
     # e.g. /library/frc2713/2026/2026necmp/. The first key in team_keys is the
     # team that discovered the video first; shared matches thus stay under that
     # team and are never re-downloaded for a later team source (youtube_id dedup).
+    # Event-type match videos nest under an event-local ``matches`` directory,
+    # e.g. /library/2026/2026necmp/matches/.
+    if video.source_type == SourceType.event_match:
+        return base / year / event / "matches"
     if video.source_type == SourceType.match:
         team = next((k for k in video.team_keys.split(",") if k), None)
         if team:
             base = base / team
     return base / year / event
+
+
+def ensure_match_copies(media_root: str, video: Video) -> int:
+    """Give every match this one video covers its own file, by copying on disk.
+
+    TBA lists a single stream on each of the matches it contains, so one
+    download can stand in for dozens of ``<match_key> [ID].ext`` files. The copy
+    is written under a temporary name and renamed into place so tdarr never
+    picks up a half-written video. Returns the number of copies made.
+    """
+    if video.source_type != SourceType.event_match or not video.file_path:
+        return 0
+    source = Path(video.file_path)
+    if not source.is_file():
+        return 0
+    dest = _dest_dir(media_root, video)
+    made = 0
+    for match_key in video.match_keys.split(","):
+        if not match_key:
+            continue
+        stem = f"{match_key} [{video.youtube_id}]"
+        if any(dest.glob(f"{glob_escape(stem)}.*")):
+            continue
+        target = dest / f"{stem}{source.suffix}"
+        tmp = dest / f"{stem}.copytmp"
+        try:
+            shutil.copy2(source, tmp)
+            os.replace(tmp, target)
+            made += 1
+            log.info("copied %s -> %s for match %s", source, target, match_key)
+        except OSError as exc:
+            log.warning("could not copy %s -> %s: %s", source, target, exc)
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return made
+
+
+def ensure_team_copies(media_root: str, video: Video) -> int:
+    """Give every additional team associated with this video its own copy.
+
+    A ``SourceType.match`` video's file already lives under its first
+    associated team's folder (see ``_dest_dir``); only later team associations
+    need a copy. Every other source type's file lives in a flat, non-team
+    folder, so each associated team gets its own copy. Returns the number of
+    copies made.
+    """
+    if not video.file_path:
+        return 0
+    source = Path(video.file_path)
+    if not source.is_file():
+        return 0
+    teams = [k for k in video.team_keys.split(",") if k]
+    if video.source_type == SourceType.match:
+        teams = teams[1:]
+    made = 0
+    for team in teams:
+        dest = (
+            Path(media_root)
+            / team
+            / str(video.year or "unknown")
+            / (video.event_key or "misc")
+        )
+        target = dest / source.name
+        if target.exists():
+            continue
+        tmp = dest / f"{source.stem}.copytmp"
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, tmp)
+            os.replace(tmp, target)
+            made += 1
+            log.info("copied %s -> %s for team %s", source, target, team)
+        except OSError as exc:
+            log.warning("could not copy %s -> %s: %s", source, target, exc)
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return made
 
 
 class DownloadManager:
@@ -228,24 +316,29 @@ def run_job(job_id: int) -> None:
 
         t0 = time.monotonic()
         try:
-            log.debug("job=%d probing live status", job.id)
-            probe = ytdlp_runner.probe(video.webpage_url, settings)
-            log.info(
-                "job=%d probe: live=%s live_status=%s title=%r duration=%s",
-                job.id,
-                probe.is_live,
-                probe.live_status,
-                probe.title,
-                probe.duration,
-            )
-            if probe.is_live:
-                log.info(
-                    "job=%d skipping: video is live (%s)", job.id, probe.live_status
+            if video.source_type in (SourceType.match, SourceType.event_match):
+                log.debug(
+                    "job=%d skipping live probe (match videos are never live)", job.id
                 )
-                _mark_skipped_live(session, job, video, probe.live_status)
-                return
-            if probe.title:
-                video.title = probe.title
+            else:
+                log.debug("job=%d probing live status", job.id)
+                probe = ytdlp_runner.probe(video.webpage_url, settings)
+                log.info(
+                    "job=%d probe: live=%s live_status=%s title=%r duration=%s",
+                    job.id,
+                    probe.is_live,
+                    probe.live_status,
+                    probe.title,
+                    probe.duration,
+                )
+                if probe.is_live:
+                    log.info(
+                        "job=%d skipping: video is live (%s)", job.id, probe.live_status
+                    )
+                    _mark_skipped_live(session, job, video, probe.live_status)
+                    return
+                if probe.title:
+                    video.title = probe.title
 
             dest = _dest_dir(settings["media_root"], video)
             # A re-download (force_redownload / skipped_live re-run) must replace
@@ -274,9 +367,12 @@ def run_job(job_id: int) -> None:
             }
             hook = _make_hook(job_id, video.id, ctx)
             pp_hook = _make_pp_hook(job_id, video.id, ctx)
+            outtmpl = None
+            if video.source_type == SourceType.event_match and video.match_key:
+                outtmpl = f"{video.match_key} [%(id)s].%(ext)s"
             try:
                 result = ytdlp_runner.download(
-                    video.webpage_url, dest, settings, hook, pp_hook
+                    video.webpage_url, dest, settings, hook, pp_hook, outtmpl
                 )
             finally:
                 # Authoritative merge-monitor cleanup: pp "finished" may never
@@ -294,6 +390,8 @@ def run_job(job_id: int) -> None:
                 result.get("vcodec"),
             )
             _record_success(session, job, video, result)
+            ensure_match_copies(settings["media_root"], video)
+            ensure_team_copies(settings["media_root"], video)
         except Exception as e:  # noqa: BLE001
             elapsed = time.monotonic() - t0
             log.exception(
@@ -304,7 +402,15 @@ def run_job(job_id: int) -> None:
                 video.webpage_url,
                 e,
             )
-            _handle_failure(session, job, video, settings, str(e))
+            reason = ytdlp_runner.classify_error(str(e))
+            if reason == "upcoming":
+                log.info("job=%d treating as not-yet-live: %s", job.id, e)
+                _mark_skipped_live(session, job, video, "is_upcoming")
+            elif reason == "unavailable":
+                log.info("job=%d treating as permanently unavailable: %s", job.id, e)
+                _mark_unavailable(session, job, video, str(e))
+            else:
+                _handle_failure(session, job, video, settings, str(e))
 
 
 def _combined_total(info: dict) -> int:
@@ -586,6 +692,8 @@ def _record_success(
     else:
         log.warning("job=%d ffprobe produced no metadata for %s", job.id, filepath)
 
+    if result.get("title"):
+        video.title = result["title"]
     video.status = VideoStatus.completed
     video.file_path = filepath
     video.orig_ext = result.get("ext")
@@ -640,6 +748,29 @@ def _mark_skipped_live(
             "reason": "live",
             "live_status": live_status,
         },
+    )
+
+
+def _mark_unavailable(
+    session: Session, job: DownloadJob, video: Video, error: str
+) -> None:
+    """Terminal state for a video YouTube has removed/privated/terminated.
+
+    Unlike ``_handle_failure`` this never retries: the video is gone, not
+    temporarily erroring, so burning ``max_retries`` attempts on it (and
+    having "Retry all failed" repeat that forever) accomplishes nothing.
+    """
+    video.status = VideoStatus.unavailable
+    video.error = error
+    video.updated_at = utcnow()
+    job.state = JobState.error
+    job.finished_at = utcnow()
+    job.log_tail = (job.log_tail + "\n" + error)[-_MAX_LOG:]
+    session.add_all([video, job])
+    session.commit()
+    events.publish(
+        "job_skipped",
+        {"job_id": job.id, "video_id": video.id, "reason": "unavailable"},
     )
 
 

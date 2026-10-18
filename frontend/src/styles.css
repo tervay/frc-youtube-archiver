@@ -91,6 +91,7 @@ td.wrap, th.wrap { white-space: normal; max-width: 340px; }
 .badge.queued { background: rgba(217,164,65,.15); color: var(--yellow); }
 .badge.failed, .badge.error { background: rgba(240,93,93,.15); color: var(--red); }
 .badge.skipped_live { background: rgba(165,120,240,.15); color: var(--purple); }
+.badge.unavailable { background: var(--panel-2); color: var(--muted); }
 .badge.discovered, .badge.pending, .badge.canceled { background: var(--panel-2); color: var(--muted); }
 .badge.transcoded { background: rgba(165,120,240,.15); color: var(--purple); }
 .badge.missing { background: rgba(240,93,93,.15); color: var(--red); }

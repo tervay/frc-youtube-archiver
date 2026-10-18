@@ -96,3 +96,45 @@ def test_missing_file_flagged_not_redownloaded(temp_env):
         # Missing files must not be auto-requeued.
         jobs = session.exec(select(DownloadJob)).all()
         assert jobs == []
+
+
+def test_copies_do_not_steal_each_others_path(temp_env, monkeypatch):
+    from app.db import get_engine, set_setting
+    from app.models import SourceType, Video
+    from app.services import reconciler
+    from app.services.media_probe import MediaInfo
+
+    media = Path(temp_env) / "media" / "2012" / "2012arc" / "matches"
+    media.mkdir(parents=True, exist_ok=True)
+    for key in ("2012arc_qm1", "2012arc_qm2", "2012arc_qm3"):
+        (media / f"{key} [UcZyRY9f8x8].mkv").write_bytes(b"x" * 100)
+
+    with Session(get_engine()) as session:
+        set_setting(session, "media_root", str(Path(temp_env) / "media"))
+        session.commit()
+        v = _make_video(
+            session,
+            "UcZyRY9f8x8",
+            media / "2012arc_qm2 [UcZyRY9f8x8].mkv",
+            "mkv",
+            "av1",
+            100,
+        )
+        v.source_type = SourceType.event_match
+        v.match_key = "2012arc_qm2"
+        v.match_keys = "2012arc_qm1,2012arc_qm2,2012arc_qm3"
+        session.add(v)
+        session.commit()
+
+    monkeypatch.setattr(
+        reconciler,
+        "ffprobe",
+        lambda p: MediaInfo(container="matroska", vcodec="av1", size=100, duration=120),
+    )
+
+    with Session(get_engine()) as session:
+        reconciler.reconcile(session)
+        v = session.exec(select(Video).where(Video.youtube_id == "UcZyRY9f8x8")).first()
+        assert v.present is True
+        assert v.transcoded is False
+        assert v.file_path.endswith("2012arc_qm2 [UcZyRY9f8x8].mkv")

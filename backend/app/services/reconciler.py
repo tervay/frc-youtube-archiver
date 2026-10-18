@@ -35,18 +35,22 @@ def extract_youtube_id(filename: str) -> Optional[str]:
 
 
 def reconcile(session: Session) -> ScanRun:
+    # Deferred: worker imports this module for the id/extension helpers.
+    from .worker import ensure_match_copies, ensure_team_copies
+
     run = ScanRun(kind="reconcile")
     media_root = Path(get_setting(session, "media_root"))
 
-    # Map youtube_id -> file on disk.
-    found: dict[str, Path] = {}
+    # Map youtube_id -> files on disk. One video can have several files: a
+    # stream covering many matches is copied once per match key.
+    found: dict[str, list[Path]] = {}
     if media_root.exists():
         for path in media_root.rglob("*"):
             if not path.is_file() or path.suffix.lower() not in VIDEO_EXTS:
                 continue
             vid = extract_youtube_id(path.name)
             if vid:
-                found[vid] = path
+                found.setdefault(vid, []).append(path)
 
     updated = 0
     transcoded_count = 0
@@ -54,7 +58,7 @@ def reconcile(session: Session) -> ScanRun:
 
     videos = session.exec(select(Video)).all()
     for video in videos:
-        path = found.get(video.youtube_id)
+        path = _primary_path(found.get(video.youtube_id), video)
         if path is None:
             if video.file_path and video.present:
                 video.present = False
@@ -78,6 +82,9 @@ def reconcile(session: Session) -> ScanRun:
             video.orig_height = info.height
         video.last_seen_at = utcnow()
 
+        ensure_match_copies(str(media_root), video)
+        ensure_team_copies(str(media_root), video)
+
         changed = _differs(video, info)
         if changed and not video.transcoded:
             transcoded_count += 1
@@ -97,6 +104,18 @@ def reconcile(session: Session) -> ScanRun:
     session.commit()
     session.refresh(run)  # keep attributes loaded after the session closes
     return run
+
+
+def _primary_path(paths: Optional[list[Path]], video: Video) -> Optional[Path]:
+    """Pick the file that represents this row when copies share its video id."""
+    if not paths:
+        return None
+    if video.match_key:
+        prefix = f"{video.match_key} ["
+        for path in sorted(paths):
+            if path.name.startswith(prefix):
+                return path
+    return sorted(paths)[0]
 
 
 def _differs(video: Video, info) -> bool:

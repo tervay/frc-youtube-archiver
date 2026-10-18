@@ -24,6 +24,33 @@ _ytdlp_log = YtdlpLogger(logging.getLogger("archiver.ytdlp.yt_dlp"))
 
 LIVE_STATUSES = {"is_live", "is_upcoming", "post_live"}
 
+# yt-dlp raises a plain DownloadError for these cases with no structured
+# reason, so classification is substring matching on the message.
+UPCOMING_PATTERNS = (
+    "this live event will begin",
+    "premieres in",
+)
+UNAVAILABLE_PATTERNS = (
+    "private video",
+    "video unavailable",
+    "this video is unavailable",
+    "video has been removed",
+    "removed by the uploader",
+    "account associated with this video has been terminated",
+)
+
+
+def classify_error(message: str) -> Optional[str]:
+    """Classify a yt-dlp error message as terminal ("unavailable"), not yet
+    live ("upcoming"), or retryable (None)."""
+    lowered = (message or "").lower()
+    if any(p in lowered for p in UPCOMING_PATTERNS):
+        return "upcoming"
+    if any(p in lowered for p in UNAVAILABLE_PATTERNS):
+        return "unavailable"
+    return None
+
+
 # Persist yt-dlp's cache (incl. the downloaded EJS solver) so it isn't re-fetched
 # on every job and survives restarts.
 _CACHE_DIR = str(CONFIG_DIR / "yt-dlp-cache")
@@ -167,6 +194,7 @@ def download(
     settings: dict[str, Any],
     progress_hook: Callable[[dict], None],
     postprocessor_hook: Optional[Callable[[dict], None]] = None,
+    output_template: Optional[str] = None,
 ) -> dict[str, Any]:
     """Download to ``dest_dir`` and return a summary dict.
 
@@ -177,7 +205,7 @@ def download(
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     opts = _base_opts(settings)
-    opts["outtmpl"] = str(dest_dir / settings["output_template"])
+    opts["outtmpl"] = str(dest_dir / (output_template or settings["output_template"]))
     opts["progress_hooks"] = [progress_hook]
     if postprocessor_hook is not None:
         opts["postprocessor_hooks"] = [postprocessor_hook]

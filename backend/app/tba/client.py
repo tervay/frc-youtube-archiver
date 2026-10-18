@@ -76,8 +76,14 @@ class TbaClient:
     def district_events(self, district_key: str) -> list[dict]:
         return self._get(f"/district/{district_key}/events") or []
 
+    def event_matches(self, event_key: str) -> list[dict]:
+        return self._get(f"/event/{event_key}/matches") or []
+
     def team_matches(self, team_key: str, year: int) -> list[dict]:
         return self._get(f"/team/{team_key}/matches/{year}") or []
 
     def team_events(self, team_key: str, year: int) -> list[dict]:
         return self._get(f"/team/{team_key}/events/{year}") or []
+
+    def years_participated(self, team_key: str) -> list[int]:
+        return self._get(f"/team/{team_key}/years_participated") or []

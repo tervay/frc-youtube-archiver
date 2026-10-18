@@ -22,6 +22,7 @@ def utcnow() -> datetime:
 class SourceType(str, enum.Enum):
     event_vod = "event_vod"
     match = "match"
+    event_match = "event_match"
     manual = "manual"
 
 
@@ -32,6 +33,7 @@ class VideoStatus(str, enum.Enum):
     completed = "completed"
     failed = "failed"
     skipped_live = "skipped_live"
+    unavailable = "unavailable"
 
 
 class JobState(str, enum.Enum):
@@ -46,6 +48,7 @@ class SourceKind(str, enum.Enum):
     season = "season"
     district = "district"
     team = "team"
+    event_type = "event_type"
 
 
 class Video(SQLModel, table=True):
@@ -61,6 +64,7 @@ class Video(SQLModel, table=True):
     match_key: Optional[str] = Field(default=None, index=True)
     year: Optional[int] = Field(default=None, index=True)
     team_keys: str = ""  # comma-separated frcNNN list for match videos
+    match_keys: str = ""  # comma-separated match keys this one video covers
 
     status: VideoStatus = Field(default=VideoStatus.discovered, index=True)
     force_redownload: bool = False
@@ -123,6 +127,8 @@ class Source(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     kind: SourceKind
     value: str = Field(index=True)  # e.g. "2026", "2026ne", "frc254"
+    start_year: Optional[int] = None
+    end_year: Optional[int] = None  # None = ongoing
     enabled: bool = True
     notes: str = ""
     created_at: datetime = Field(default_factory=utcnow)

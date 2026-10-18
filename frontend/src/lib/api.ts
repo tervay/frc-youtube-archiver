@@ -2,7 +2,7 @@
 
 export type VideoStatus =
   | "discovered" | "queued" | "downloading" | "completed" | "failed"
-  | "skipped_live";
+  | "skipped_live" | "unavailable";
 
 export interface Video {
   id: number;
@@ -46,8 +46,10 @@ export interface Job {
 
 export interface Source {
   id: number;
-  kind: "season" | "district" | "team";
+  kind: "season" | "district" | "team" | "event_type";
   value: string;
+  start_year: number | null;
+  end_year: number | null;
   enabled: boolean;
   notes: string;
 }
@@ -76,10 +78,16 @@ export const api = {
   manual: (url: string, year?: number, event_key?: string) =>
     req(`/queue/manual`, { method: "POST", body: JSON.stringify({ url, year, event_key }) }),
   sources: () => req<Source[]>("/sources"),
-  addSource: (kind: string, value: string, notes = "") =>
-    req(`/sources`, { method: "POST", body: JSON.stringify({ kind, value, notes }) }),
+  addSource: (kind: string, value: string, notes = "", start_year?: number, end_year?: number) =>
+    req(`/sources`, { method: "POST", body: JSON.stringify({ kind, value, notes, start_year, end_year }) }),
   toggleSource: (id: number, enabled: boolean) =>
     req(`/sources/${id}?enabled=${enabled}`, { method: "PATCH" }),
+  setSourceYears: (id: number, start_year: number, end_year: number | null) =>
+    req<Source>(
+      `/sources/${id}?start_year=${start_year}&` +
+        (end_year === null ? "ongoing=true" : `end_year=${end_year}`),
+      { method: "PATCH" },
+    ),
   deleteSource: (id: number) => req(`/sources/${id}`, { method: "DELETE" }),
   settings: () => req<{ schema: any[] }>("/settings"),
   saveSettings: (values: Record<string, any>) =>

@@ -3,7 +3,7 @@ import { api, Video } from "../lib/api";
 import { useToast } from "../components/Toast";
 import { humanBytes, timeAgo } from "../lib/format";
 
-const STATUSES = ["", "completed", "downloading", "queued", "failed", "skipped_live", "discovered"];
+const STATUSES = ["", "completed", "downloading", "queued", "failed", "skipped_live", "unavailable", "discovered"];
 
 export default function History() {
   const toast = useToast();
@@ -34,11 +34,26 @@ export default function History() {
     catch (e: any) { toast(e.message, true); }
   };
 
+  const retryAllFailed = async () => {
+    if (!confirm("Requeue all failed videos?")) return;
+    try {
+      const r = await api.retryFailed();
+      toast(`Requeued ${r.requeued} of ${r.total_failed} failed`);
+      load();
+    } catch (e: any) { toast(e.message, true); }
+  };
+
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <>
-      <div className="page-head"><h1>History</h1><span className="muted">{total} videos</span></div>
+      <div className="page-head">
+        <h1>History</h1>
+        <div className="row" style={{ gap: 8 }}>
+          <span className="muted">{total} videos</span>
+          <button onClick={retryAllFailed}>Retry all failed</button>
+        </div>
+      </div>
 
       <div className="toolbar">
         <input placeholder="Search title / event / team / id…" value={q}

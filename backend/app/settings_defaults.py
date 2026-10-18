@@ -157,14 +157,15 @@ SETTINGS: list[SettingSpec] = [
     ),
     SettingSpec(
         "youtube_player_client",
-        "mweb,tv,web_safari",
+        "default",
         "str",
         "YouTube player client",
         "Comma-separated yt-dlp player clients, highest priority first. "
-        "mweb (with the bundled PO-token provider) is preferred because the "
-        "tv client's DASH URLs now get a mid-download HTTP 403 (SABR "
-        "throttling) on was_live/post-live videos; tv/web_safari are kept "
-        "as fallbacks. Blank/'default' lets yt-dlp choose.",
+        "'default' lets yt-dlp fan out across its maintained client set and "
+        "pick the best working format. Do not force mweb first: YouTube now "
+        "rejects the bundled provider's mweb GVS PO tokens, so its media URLs "
+        "HTTP 403. Do not lead with tv: it fails extraction and its DASH URLs "
+        "get a mid-download 403 (SABR throttling) on was_live/post-live videos.",
         group="Downloads",
     ),
     SettingSpec(
@@ -177,7 +178,7 @@ SETTINGS: list[SettingSpec] = [
     ),
     SettingSpec(
         "live_buffer_days",
-        1,
+        0,
         "int",
         "Live buffer (days)",
         "Only consider an event's VODs once its end date is this many days past.",
