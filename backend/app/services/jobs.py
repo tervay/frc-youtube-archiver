@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 from sqlmodel import Session, col, select
 
 from .. import events
-from ..db import get_all_settings, get_engine
+from ..db import get_all_settings, get_engine, get_setting
 from ..models import ScanRun, Video, VideoStatus, utcnow
 from . import ytdlp_runner
 from .ganymede_sync import GanymedeSync
+from .image_scanner import ImageScanner
 from .queue import enqueue_video
 from .reconciler import reconcile
 from .scanner import Scanner
@@ -20,6 +22,12 @@ gany_log = logging.getLogger("archiver.ganymede")
 
 
 def run_scan() -> ScanRun:
+    run = run_video_scan()
+    run_image_scan()
+    return run
+
+
+def run_video_scan() -> ScanRun:
     with Session(get_engine()) as session:
         run = Scanner(session).run()
     events.publish(
@@ -32,6 +40,24 @@ def run_scan() -> ScanRun:
             "message": run.message,
         },
     )
+    return run
+
+
+def run_image_scan() -> Optional[ScanRun]:
+    with Session(get_engine()) as session:
+        if not get_setting(session, "images_enabled"):
+            return None
+        run = ImageScanner(session).run()
+    if run is not None:
+        events.publish(
+            "scan_done",
+            {
+                "kind": "image_scan",
+                "discovered": run.discovered,
+                "ok": run.ok,
+                "message": run.message,
+            },
+        )
     return run
 
 

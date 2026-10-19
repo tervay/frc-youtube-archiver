@@ -8,7 +8,12 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 
 from ..models import ScanRun
-from ..services.jobs import run_reconcile, run_resolution_audit, run_scan
+from ..services.jobs import (
+    run_image_scan,
+    run_reconcile,
+    run_resolution_audit,
+    run_video_scan,
+)
 from .. import scheduler
 from .deps import get_session
 
@@ -17,7 +22,9 @@ router = APIRouter(tags=["actions"])
 
 @router.post("/actions/scan")
 async def scan_now():
-    run = await asyncio.get_event_loop().run_in_executor(None, run_scan)
+    loop = asyncio.get_event_loop()
+    run = await loop.run_in_executor(None, run_video_scan)
+    loop.run_in_executor(None, run_image_scan)
     return {
         "ok": run.ok,
         "discovered": run.discovered,

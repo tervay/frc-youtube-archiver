@@ -185,6 +185,41 @@ SETTINGS: list[SettingSpec] = [
         group="Discovery",
     ),
     SettingSpec(
+        "images_enabled",
+        True,
+        "bool",
+        "Archive robot images",
+        "Discover every team's TBA robot images (imgur) during the daily scan "
+        "and download them to <media root>/images/<team>/<year>/.",
+        group="Images",
+    ),
+    SettingSpec(
+        "image_request_interval",
+        2.0,
+        "float",
+        "Sleep between image downloads (s)",
+        "Seconds to wait between imgur requests. Images download one at a time.",
+        group="Images",
+    ),
+    SettingSpec(
+        "image_recheck_days",
+        30,
+        "int",
+        "Past-year recheck (days)",
+        "How often TBA media for past seasons is re-fetched. The current season "
+        "is checked on every scan.",
+        group="Images",
+    ),
+    SettingSpec(
+        "image_user_agent",
+        "curl/8.5.0",
+        "str",
+        "Image User-Agent",
+        "User-Agent sent to imgur. imgur answers Python User-Agents "
+        "(python-httpx, python-requests) with an instant 429.",
+        group="Images",
+    ),
+    SettingSpec(
         "log_level",
         "INFO",
         "str",

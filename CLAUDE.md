@@ -67,6 +67,34 @@ and serves a React dashboard. No auth (LAN only).
 
 Non-YouTube webcasts (Twitch etc.) are ignored.
 
+## Robot images (imgur, via TBA team media)
+
+- **Discovery** (`services/image_scanner.py`) runs at the end of every scan (`jobs.run_scan` →
+  `run_image_scan`; `POST /actions/scan` waits only for the video part and fires the image scan
+  in the background). It covers **every team, every year**: `/events/{year}/keys`, then
+  `/event/{key}/team_media` (that year's media for every attending team, each item carrying
+  `team_keys`), which is ~5k calls for full history instead of ~65k per team-year calls.
+  The current season is always fetched; past seasons only when their `TbaCache` row is older
+  than `image_recheck_days` (`_get(max_age_days=)`; a 304 now refreshes `fetched_at`). A
+  module lock skips overlapping image scans.
+- **Dedup**: `Image` rows, UNIQUE on (provider, foreign_key, team_number, year). One media item
+  tagged with several teams gets one row per team.
+- **Download** (`services/image_downloader.py`): one asyncio loop, one request at a time,
+  `image_request_interval` seconds apart. Original file = `https://i.imgur.com/<id>.jpg` (TBA's
+  `direct_url` ends in `h` = 1024px thumbnail); the real format comes from `Content-Type`. Saved
+  to `<media_root>/images/<team number>/<year>/<id>.<ext>` via `.part` + rename. A
+  foreign_key already downloaded for another team-year is copied, not refetched.
+- **imgur gotchas (verified 2026-10):**
+  - **Python User-Agents get an instant 429** (`python-httpx`, `python-requests`, with
+    `Retry-After: 0`); curl/browser/custom UAs get 200. Always send `image_user_agent`
+    (default `curl/8.5.0`).
+  - A deleted image is `302 → i.imgur.com/removed.png`: **never follow redirects**; 3xx/404 =
+    `removed` (terminal).
+  - 429 keeps the row `pending` without counting an attempt; wait `Retry-After` if > 0, else
+    exponential backoff 60s → 1h. Other errors fail after `max_retries`.
+- New host = one entry in `IMAGE_URLS` (TBA media `type` → URL) plus whatever its download needs.
+- Image files have no `[VIDEOID]` and aren't in `VIDEO_EXTS`, so the reconciler ignores them.
+
 ## YouTube extraction chain (all FOUR required — hard-won)
 
 YouTube downloads fail without every piece; these are the correct settings defaults:

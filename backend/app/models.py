@@ -12,6 +12,7 @@ import enum
 from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -42,6 +43,13 @@ class JobState(str, enum.Enum):
     done = "done"
     error = "error"
     canceled = "canceled"
+
+
+class ImageStatus(str, enum.Enum):
+    pending = "pending"
+    downloaded = "downloaded"
+    removed = "removed"
+    failed = "failed"
 
 
 class SourceKind(str, enum.Enum):
@@ -119,6 +127,30 @@ class DownloadJob(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
+
+
+class Image(SQLModel, table=True):
+    __tablename__ = "image"
+    __table_args__ = (
+        UniqueConstraint("provider", "foreign_key", "team_number", "year"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    provider: str = Field(index=True)
+    foreign_key: str = Field(index=True)
+    team_number: int = Field(index=True)
+    year: int = Field(index=True)
+    preferred: bool = False
+
+    status: ImageStatus = Field(default=ImageStatus.pending, index=True)
+    file_path: Optional[str] = None
+    ext: Optional[str] = None
+    size: Optional[int] = None
+    error: Optional[str] = None
+    attempts: int = 0
+
+    discovered_at: datetime = Field(default_factory=utcnow)
+    downloaded_at: Optional[datetime] = None
 
 
 class Source(SQLModel, table=True):

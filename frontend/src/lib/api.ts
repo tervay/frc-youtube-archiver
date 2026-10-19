@@ -30,6 +30,22 @@ export interface Video {
   retry_count: number;
 }
 
+export type ImageStatus = "pending" | "downloaded" | "removed" | "failed";
+
+export interface Image {
+  id: number;
+  provider: string;
+  foreign_key: string;
+  team_number: number;
+  year: number;
+  preferred: boolean;
+  status: ImageStatus;
+  ext: string | null;
+  size: number | null;
+  error: string | null;
+  downloaded_at: string | null;
+}
+
 export interface Job {
   id: number;
   video_id: number;
@@ -69,6 +85,8 @@ async function req<T>(path: string, opts?: RequestInit): Promise<T> {
 export const api = {
   stats: () => req<any>("/stats"),
   videos: (qs: string) => req<{ total: number; items: Video[]; page: number; page_size: number }>(`/videos?${qs}`),
+  images: (qs: string) =>
+    req<{ total: number; items: Image[]; page: number; page_size: number; counts: Record<ImageStatus, number> }>(`/images?${qs}`),
   redownload: (id: number) => req(`/videos/${id}/redownload`, { method: "POST" }),
   queue: (activeOnly = false) =>
     req<{ job: Job; video: Video }[]>(`/queue?active_only=${activeOnly}`),

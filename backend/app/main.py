@@ -19,6 +19,7 @@ from . import events, runtime, scheduler
 from .api import api_router
 from .db import get_all_settings, get_engine, init_db
 from .logging_config import setup_logging
+from .services.image_downloader import ImageDownloader
 from .services.worker import DownloadManager, recover_interrupted_jobs
 
 STATIC_DIR = Path(os.environ.get("ARCHIVER_STATIC_DIR", "/app/static"))
@@ -39,6 +40,8 @@ async def lifespan(app: FastAPI):
     events.set_loop(asyncio.get_running_loop())
     runtime.manager = DownloadManager()
     runtime.manager.start()
+    runtime.images = ImageDownloader()
+    runtime.images.start()
     scheduler.start()
     log.info("Startup complete; download manager and scheduler running")
     try:
@@ -48,6 +51,8 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
         if runtime.manager:
             await runtime.manager.stop()
+        if runtime.images:
+            await runtime.images.stop()
 
 
 app = FastAPI(title="FRC Archiver", lifespan=lifespan)

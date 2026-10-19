@@ -8,6 +8,7 @@ always called from a worker thread (never the event loop).
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, Optional
 
 import httpx
@@ -30,8 +31,12 @@ class TbaClient:
         self.session = session
         self.base_url = base_url.rstrip("/")
 
-    def _get(self, path: str) -> Any:
+    def _get(self, path: str, max_age_days: Optional[int] = None) -> Any:
         cache = self.session.get(TbaCache, path)
+        if max_age_days is not None and cache and cache.body is not None:
+            age = utcnow().replace(tzinfo=None) - cache.fetched_at.replace(tzinfo=None)
+            if age < timedelta(days=max_age_days):
+                return httpx.Response(200, content=cache.body).json()
         headers = {"X-TBA-Auth-Key": self.api_key, "accept": "application/json"}
         if cache and cache.etag:
             headers["If-None-Match"] = cache.etag
@@ -42,6 +47,9 @@ class TbaClient:
         resp = httpx.get(url, headers=headers, timeout=30.0)
 
         if resp.status_code == 304 and cache and cache.body is not None:
+            cache.fetched_at = utcnow()
+            self.session.add(cache)
+            self.session.commit()
             return httpx.Response(200, content=cache.body).json()
         if resp.status_code == 401:
             raise TbaError("TBA rejected the API key (401).")
@@ -87,3 +95,11 @@ class TbaClient:
 
     def years_participated(self, team_key: str) -> list[int]:
         return self._get(f"/team/{team_key}/years_participated") or []
+
+    def event_keys(self, year: int) -> list[str]:
+        return self._get(f"/events/{year}/keys") or []
+
+    def event_team_media(
+        self, event_key: str, max_age_days: Optional[int] = None
+    ) -> list[dict]:
+        return self._get(f"/event/{event_key}/team_media", max_age_days) or []
